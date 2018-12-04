@@ -1,124 +1,42 @@
-# 
-# Author: Jake Diamond
-# Purpose: Analysis of surface models, distributions, semivariograms
-# Date: December 1, 2018
-# 
+#
+# Purpose: To analyze D2 spatial data
+# Coder: Jake Diamond
+# Date: November 30, 2017
+#
 
-# Set Working Directory
-# setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
-setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
+# Set Working directory
+setwd("C:/Users/Jake/Dropbox/Projects/EAB/Data")
 
-# Load Libraries
-library(raster)
-library(tidyverse)
+# Load libraries
+library(dplyr)
 library(mixtools)
 library(MASS)
+library(spatstat)
+library(ggplot2)
+library(raster)
+library(spectral)
+library(kzfs)
 library(gstat)
-library(ecogen)
+library(ncf)
+ncf.cor <- correlog(df$X..X, df$Y, df$Coord._Z,
+                    increment=0.2, resamp=5)
+ncf.cor
+plot(x = ncf.cor$mean.of.class, y = ncf.cor$correlation)
 
-# Get raster files from point cloud 
-dfr <- raster("Lidar/Rasters/D1_1cm.tif")
-xyz <- rasterToPoints(dfr)
-xyz <- as.data.frame(xyz)
-xyz$D1_1cm <- ifelse(xyz$D1_1cm == min(xyz$D1_1cm),
-                     NA,
-                     xyz$D1_1cm) 
-plot(hist(xyz$D1_1cm))
-
-df <- read.table("Lidar/Clouds/D1_1cm.asc")
-df <- select(df, 1:3) %>%
-  rename(x = V1, y = V2, z = V3)
-df_z.d <- select(df, 1:2, 7) %>%
-  rename(x = V1, y = V2, z.d = V10)
-e <- extent(df_z[,1:2])
-plot(df)
-# Detrending
-# Fit a linear model with the x and y coordinates as predictors
-fit.test <- lm(z ~ x + y, data=df_z)
-
-# Extract the residuals
-lm.residuals <- fit.test$residuals  
-
-# To fit polynomial of degree two or higher, you must pass a matrix with the xy coordinates through poly()
-# isolate the columns with the x and y coordinates and covert to matrix
-X.Y <- as.matrix(df_z[,c(1,2)]) 
-# Create a vector with the elevation data
-z <- df_z[, 3]  
-
-#Recreate the data frame with the coordinates and the residuals (instead of the raw elevation)
-
-x.y <- df_z[,1:2]  #isolate the coordinate columns
-
-x.y$residuals <- lm.residuals #create column of residuals
-x.y$quad  <- quad.residuals
-x.y.r <- x.y   #rename the data frame
-
-head(x.y.r)  #check to make sure it worked
-plot(hist(df_z$z, breaks= 1000), freq = FALSE)
-plot(hist(df$V10, breaks= 1000), freq = FALSE)
-plot(hist(x.y.r$residuals, breaks= 1000), freq = FALSE)
-plot(hist(x.y.r$quad, breaks= 1000), freq = FALSE)
-
-#convert back to RasterLayer and restore the projection and datum
-df.detrend <- rasterFromXYZ(x.y.r, 
-                            res = c(0.01, 0.01)
-                            )
-
-#convert back to SpatialGridDataFrame
-
-alex.15.detrended <- as(alex.15.detrend, ‘SpatialGridDataFrame’)
-
-#convert to im object in spatstat
-
-alex.15.d <- as.im(alex.15.detrended)
-
-
-
-
-coordinates(df_z) <- ~x+y
-r <- raster(ext = extent(df_z), resolution = 1)
-r_z <- rasterize(df_z, r, df_z$z, fun = mean)
-# r_z.d <- rasterize(df_z.d[,1:2], r, df_z.d[,3], fun = mean)
-plot(r_z)
-# plot(r_z.d)
-coordinates(x.y.r) <- ~x+y
-r <- raster(ext = extent(x.y.r), resolution = 1)
-r_z <- rasterize(x.y.r, r, x.y.r$residuals, fun = mean)
-# r_z.d <- rasterize(df_z.d[,1:2], r, df_z.d[,3], fun = mean)
-plot(r_z)
-
-
-
-points <- SpatialPoints(y[,1:2], y[,3])
-# Read in xy coordinates
-df_xy <- data.frame(x = c(1, 2, 3), 
-                    y = c(1, 2, 3)
-)
-# Extract raster values from xy coordinates
-xy_r_values <- extract(r3, 
-                       SpatialPoints(df_xy), 
-                       sp = TRUE
-)@data 
-
-# 2) you want to analyze the distributions in what way? If you just want the raw numbers to throw in a model of the size distribution just grab the Z values (raw) or the scalar field (detrended) of .asc files. You would read it like this, I believe:
-
-dist <- data.frame(Z = read.table("my_model.asc", sep = ",")[,3], Zd =  read.table("my_model.asc", sep = ",")[,7])
-#from here you can run any stats you'd like to analyze the distribution
-
-
+library(SpatialPack)
+data <- summary(modified.ttest(z.value,z.value,coords = xy,nclass = 21))
+plot(x=data$coef[,1],y = data$coef[,4],type = "l")
+# Read in elevation data
 df <- read.csv("D2_10cm_vertices1m_h_v3.csv")
-
+# df <- read.csv("D2_10cm_vertices1m_h_v3.csv")
+# df <- df[df$Coord..Z < -1.3, ]
 
 # Bimodal analysis
-plot(hist(df_z.d$z.d, breaks= 50), freq = FALSE)
-mixmdl <- normalmixEM(na.omit(df$z),
-                      epsilon = 100,
-                      maxit = 100)
-plot(mixmdl, which = 2, breaks = 72)
-,
+mixmdl <- normalmixEM(df$Coord._Z)
+plot(mixmdl, which = 2, breaks = 72,
      xlab = "Elevation (m)",
      ylab = "Density")
-lines(density(df_z$z, lty = 2, lwd = 2))
+lines(density(df$Coord._Z, lty = 2, lwd = 2))
 
 plot_mix_comps <- function(x, mu, sigma, lam) {
   lam * dnorm(x, mu, sigma)
@@ -167,7 +85,7 @@ ggsave(plot = p, filename = "D2_Bimodal.png",
        units = "in")
 
 
-fit <- fitdistr(df$z, "normal")
+fit <- fitdistr(df$Coord._Z, "normal")
 para <- fit$estimate
 uni <- fit$loglik
 bi <- mixmdl$loglik
@@ -175,18 +93,13 @@ D <- 2 * (bi - uni)
 
 pchisq(D, df=2, lower.tail=FALSE)
 
-# Semivariogram analysis
-points <- SpatialPoints(xyz[,1:2], xyz[,3])
-xyspatial <- SpatialPoints(cbind(df_z$x, df_z$y))
-zspatial <- data.frame(df_z$z)
+
+
+# gstat stuff
+xyspatial <- SpatialPoints(cbind(df$X..X, df$Y))
+zspatial <- data.frame(df$Coord._Z)
 spatialdata <- SpatialPointsDataFrame(xyspatial, zspatial)
-spatialdata <- as(dfr, 'SpatialPointsDataFrame')
-xyz <- as.data.frame(spatialdata)
-xyz$D1_1cm <- ifelse(xyz$D1_1cm == min(xyz$D1_1cm),
-                     NA,
-                     xyz$D1_1cm)
-xyz <- na.omit(xyz)
-zvario <- variogram(spatialdata$D1_1cm ~ 1, 
+zvario <- variogram(df.Coord._Z ~ 1, 
                     locations = spatialdata,
                     width = 0.1)
 
@@ -207,7 +120,7 @@ locmin <- locmin[-c(1:6, 8:11, 13:19, 21:22, 24:25)]
 
 
 zvm <- fit.variogram(zvario, model = vgm("Pow", 0.02117),
-                     fit.sills = FALSE)
+                    fit.sills = FALSE)
 curve(0.02117 * (1 - exp(-x / 2.638637)), add = TRUE)
 
 semi <- ggplot(data = zvario, aes(x = dist, y = gamma)) +
@@ -244,3 +157,59 @@ semi <- ggplot(data = zvario, aes(x = dist, y = gamma)) +
 ggsave(plot = semi, filename = "D2_semivariogram.png",
        width = 8, height = 6, 
        units = "in")
+
+
+
+
+
+# Spatstat stuff
+P <- ppp(df$X..X, df$Y, c(-21.25, 23.16), c(-32.9, 20), marks = df$Coord..Z)
+plot(P)
+kstest(P, function(x, y, m) {
+  m
+})
+kpp <- Kest.fft(P, 0.01)
+plot(kpp)
+z <- rasterFromXYZ(df, digits = 3)
+z2 <- as.matrix(z$Coord..Z)
+spe <- spec.fft(z = z2)
+spe
+df$X..X[2] - df$X..X[1]
+z2 <- z2[rowSums(is.na(z2)) != ncol(z2), ]
+rp <- kzp2(z2)
+dx <- round(max(df$X..X) - min(df$X..X), 1) * 10 #cm
+dy <- round(max(df$Y) - min(df$Y), 1) * 10 #cm
+b <- expand.grid(x = 1:dx, y = 1:dy)
+b$z <- df$Coord..Z
+a <- array(0, c(dx, dy))
+a[as.matrix(b[, 1:2])] <- b$z
+
+dx <- 100				# x range
+dy <- 120				# y range
+b <- expand.grid(x=1:dx, y=1:dy)
+q1 <- pi/6; f1 <- 0.2;
+b$v1 <- sin(f1*2*pi*(b$x*cos(q1)+b$y*sin(q1))+100*runif(1))
+q2 <- pi/4; f2 <- 0.08;
+b$v2 <- sin(f2*2*pi*(b$x*cos(q2)+b$y*sin(q2))+100*runif(1))
+a <- array(0,c(dx,dy))
+a[as.matrix(b[,1:2])] <- b$v1 + 1.5*b$v2
+a <- a + 10*matrix(rnorm(dx*dy,0,1),ncol=dy)
+
+rp <- kzp2(a)			# raw 2D spectrum
+
+fy <- rp$freq.y; fx <- rp$freq.x; rp <- rp$kzp2d
+
+# smoothing 2D spectrum 2 times
+sp <- smooth.kzp2(rp,0.01,k=2)	
+
+par(mfrow=c(2,1), cex=0.5)
+heatmap(x= rp, Rowv = NA, Colw = NA)
+
+
+persp(x=fx, y=fy, z=rp, expand =0.5,
+      main = "Smoothed 2D KZ Periodogram",
+      zlab="",xlab="x", ylab="y",
+      ticktype="detailed")
+par(mfrow=c(1,1), cex=1)
+
+kzp2.summary(rp)		# direction & frequency
