@@ -5,8 +5,8 @@
 # 
 
 # Set Working Directory
-# setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
-setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
+setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
+# setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 
 # Load Libraries
 library(raster)
@@ -18,12 +18,36 @@ library(ecogen)
 
 # Get raster files from point cloud 
 dfr <- raster("Lidar/Rasters/D1_1cm.tif")
+projection(dfr)
+
 xyz <- rasterToPoints(dfr)
 xyz <- as.data.frame(xyz)
 xyz$D1_1cm <- ifelse(xyz$D1_1cm == min(xyz$D1_1cm),
                      NA,
-                     xyz$D1_1cm) 
+                     xyz$D1_1cm)
+xyz <- na.omit(xyz)
+xy <- xyz[, c(1, 2)]
+spdf <- SpatialPointsDataFrame(coords = xy, 
+                               data = xyz,
+                               proj4string = 
+                                 CRS("+proj=utm +zone=15 +datum=WGS84"))
+
+
+
 plot(hist(xyz$D1_1cm))
+
+point_data <- as(dfr, 'SpatialPointsDataFrame')
+point_data$D1_1cm <- ifelse(point_data$D1_1cm == min(point_data$D1_1cm),
+                            NA,
+                            point_data$D1_1cm)
+point_data <- (point_data$)
+gstat_variogram <- variogram(D1_1cm ~ 1, ,
+                             data = spdf,
+                             width = 2)
+
+
+
+
 
 df <- read.table("Lidar/Clouds/D1_1cm.asc")
 df <- select(df, 1:3) %>%
@@ -111,7 +135,7 @@ df <- read.csv("D2_10cm_vertices1m_h_v3.csv")
 
 # Bimodal analysis
 plot(hist(df_z.d$z.d, breaks= 50), freq = FALSE)
-mixmdl <- normalmixEM(na.omit(df$z),
+mixmdl <- normalmixEM(na.omit(xyz$D1_1cm),
                       epsilon = 100,
                       maxit = 100)
 plot(mixmdl, which = 2, breaks = 72)
