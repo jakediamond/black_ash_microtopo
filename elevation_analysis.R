@@ -8,30 +8,7 @@
 # setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
 setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 
-# Load Libraries
-library(dplyr)
-library(tidyr)
-library(broom)
-library(ggplot2)
-library(lubridate)
-library(purrr)
-library(stringr)
 
-# Load data
-# elev <- read.csv("E:/Dropbox/Dropbox/Projects/EAB/Data/relative_elevations.csv")
-elev <- read.csv("C:/Users/diamo/Dropbox/Projects/EAB/Data/relative_elevations.csv",
-                 stringsAsFactors = FALSE)
-elev$X <- NULL
-huho <- read.csv("hu.ho.csv", stringsAsFactors = FALSE)
-
-# Data cleaning
-huho$point <- paste(huho$plot, huho$position, sep = ".")
-huho[huho$site == "B1", "site"] <- "L1"
-huho[huho$site == "B3", "site"] <- "L2"
-huho[huho$site == "B6", "site"] <- "L3"
-
-# Join data
-df <- left_join(huho, elev, by = c("site", "plot" , "point"))
 
 # t-tests for hummock-hollow elevation difference
 ttests_site <- df %>%

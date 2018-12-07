@@ -19,13 +19,23 @@ library(ecogen)
 # Get raster files from point cloud 
 dfr <- raster("Lidar/Rasters/D1_1cm.tif")
 projection(dfr)
-
+plot(dfr)
 xyz <- rasterToPoints(dfr)
 xyz <- as.data.frame(xyz)
-xyz$D1_1cm <- ifelse(xyz$D1_1cm == min(xyz$D1_1cm),
-                     NA,
-                     xyz$D1_1cm)
-xyz <- na.omit(xyz)
+
+
+
+
+
+
+
+
+
+
+# xyz$D1_1cm <- ifelse(xyz$D1_1cm == min(xyz$D1_1cm),
+#                      NA,
+#                      xyz$D1_1cm)
+# xyz <- na.omit(xyz)
 xy <- xyz[, c(1, 2)]
 spdf <- SpatialPointsDataFrame(coords = xy, 
                                data = xyz,
