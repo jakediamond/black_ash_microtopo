@@ -14,218 +14,178 @@ library(tidyverse)
 library(mixtools)
 library(MASS)
 library(gstat)
-library(ecogen)
 
-# Get raster files from point cloud 
-dfr <- raster("Lidar/Rasters/D1_1cm.tif")
-projection(dfr)
-plot(dfr)
-xyz <- rasterToPoints(dfr)
-xyz <- as.data.frame(xyz)
-
-
-
-
-
-
-
-
-
-
-# xyz$D1_1cm <- ifelse(xyz$D1_1cm == min(xyz$D1_1cm),
-#                      NA,
-#                      xyz$D1_1cm)
-# xyz <- na.omit(xyz)
-xy <- xyz[, c(1, 2)]
-spdf <- SpatialPointsDataFrame(coords = xy, 
-                               data = xyz,
-                               proj4string = 
-                                 CRS("+proj=utm +zone=15 +datum=WGS84"))
-
-
-
-plot(hist(xyz$D1_1cm))
-
-point_data <- as(dfr, 'SpatialPointsDataFrame')
-point_data$D1_1cm <- ifelse(point_data$D1_1cm == min(point_data$D1_1cm),
-                            NA,
-                            point_data$D1_1cm)
-point_data <- (point_data$)
-gstat_variogram <- variogram(D1_1cm ~ 1, ,
-                             data = spdf,
-                             width = 2)
-
-
-
-
-
-df <- read.table("Lidar/Clouds/D1_1cm.asc")
-df <- select(df, 1:3) %>%
-  rename(x = V1, y = V2, z = V3)
-df_z.d <- select(df, 1:2, 7) %>%
-  rename(x = V1, y = V2, z.d = V10)
-e <- extent(df_z[,1:2])
-plot(df)
-# Detrending
-# Fit a linear model with the x and y coordinates as predictors
-fit.test <- lm(z ~ x + y, data=df_z)
-
-# Extract the residuals
-lm.residuals <- fit.test$residuals  
-
-# To fit polynomial of degree two or higher, you must pass a matrix with the xy coordinates through poly()
-# isolate the columns with the x and y coordinates and covert to matrix
-X.Y <- as.matrix(df_z[,c(1,2)]) 
-# Create a vector with the elevation data
-z <- df_z[, 3]  
-
-#Recreate the data frame with the coordinates and the residuals (instead of the raw elevation)
-
-x.y <- df_z[,1:2]  #isolate the coordinate columns
-
-x.y$residuals <- lm.residuals #create column of residuals
-x.y$quad  <- quad.residuals
-x.y.r <- x.y   #rename the data frame
-
-head(x.y.r)  #check to make sure it worked
-plot(hist(df_z$z, breaks= 1000), freq = FALSE)
-plot(hist(df$V10, breaks= 1000), freq = FALSE)
-plot(hist(x.y.r$residuals, breaks= 1000), freq = FALSE)
-plot(hist(x.y.r$quad, breaks= 1000), freq = FALSE)
-
-#convert back to RasterLayer and restore the projection and datum
-df.detrend <- rasterFromXYZ(x.y.r, 
-                            res = c(0.01, 0.01)
-                            )
-
-#convert back to SpatialGridDataFrame
-
-alex.15.detrended <- as(alex.15.detrend, ‘SpatialGridDataFrame’)
-
-#convert to im object in spatstat
-
-alex.15.d <- as.im(alex.15.detrended)
-
-
-
-
-coordinates(df_z) <- ~x+y
-r <- raster(ext = extent(df_z), resolution = 1)
-r_z <- rasterize(df_z, r, df_z$z, fun = mean)
-# r_z.d <- rasterize(df_z.d[,1:2], r, df_z.d[,3], fun = mean)
-plot(r_z)
-# plot(r_z.d)
-coordinates(x.y.r) <- ~x+y
-r <- raster(ext = extent(x.y.r), resolution = 1)
-r_z <- rasterize(x.y.r, r, x.y.r$residuals, fun = mean)
-# r_z.d <- rasterize(df_z.d[,1:2], r, df_z.d[,3], fun = mean)
-plot(r_z)
-
-
-
-points <- SpatialPoints(y[,1:2], y[,3])
-# Read in xy coordinates
-df_xy <- data.frame(x = c(1, 2, 3), 
-                    y = c(1, 2, 3)
-)
-# Extract raster values from xy coordinates
-xy_r_values <- extract(r3, 
-                       SpatialPoints(df_xy), 
-                       sp = TRUE
-)@data 
-
-# 2) you want to analyze the distributions in what way? If you just want the raw numbers to throw in a model of the size distribution just grab the Z values (raw) or the scalar field (detrended) of .asc files. You would read it like this, I believe:
-
-dist <- data.frame(Z = read.table("my_model.asc", sep = ",")[,3], Zd =  read.table("my_model.asc", sep = ",")[,7])
-#from here you can run any stats you'd like to analyze the distribution
-
-
-df <- read.csv("D2_10cm_vertices1m_h_v3.csv")
-
-
-# Bimodal analysis
-plot(hist(df_z.d$z.d, breaks= 50), freq = FALSE)
-mixmdl <- normalmixEM(na.omit(xyz$D1_1cm),
-                      epsilon = 100,
-                      maxit = 100)
-plot(mixmdl, which = 2, breaks = 72)
-,
-     xlab = "Elevation (m)",
-     ylab = "Density")
-lines(density(df_z$z, lty = 2, lwd = 2))
-
-plot_mix_comps <- function(x, mu, sigma, lam) {
-  lam * dnorm(x, mu, sigma)
+# Get all filenames
+filenames <- paste("Lidar/detrended/", 
+                   list.files("Lidar/detrended"), 
+                   sep = "")
+# Bimodal analysis --------------------------------------------------------
+for (i in 1:length(filenames)){
+  rm(p_b, p_u)
+  # Get site from file name
+  s <- filenames[i] %>%
+    strsplit(., "[/]") %>%
+    unlist()
+  s <- s[[3]] %>%
+    strsplit(., "[_]") %>%
+    unlist()
+  s <- s[[1]]
+  # Load raster file
+  r <- raster(filenames[i])
+  # Convert raster to points
+  xyz <- rasterToPoints(r)
+  xyz <- as.data.frame(xyz)
+  colnames(xyz)[3] <- "z"
+  xyz <- dplyr::filter(xyz, z < quantile(z, 0.9))
+  xy <- xyz[, c(1, 2)]
+  spdf <- SpatialPointsDataFrame(coords = xy, 
+                                 data = xyz,
+                                 proj4string = 
+                                   CRS("+proj=utm +zone=15 +datum=WGS84"))
+  spSample <- spdf[sample(1:length(spdf), 100000), ]
+  
+  # Remove data for memory
+  rm(r)
+  
+  # Get a bimodal model of two normal distributions
+  mixmdl <- normalmixEM(na.omit(spSample$z),
+                        k = 2
+                        )
+  # Get a fit for a unimodal normal distribution
+  unimdl <- fitdistr(spSample$z, "normal")
+  para <- unimdl$estimate
+  # Get log-likelihoods for both uni and bimodal distributions
+  uni <- unimdl$loglik
+  bi <- mixmdl$loglik
+  # Calculate the deviance between them
+  D <- bi - uni
+  # Determinen  if significantly different
+  p <- 1 - pchisq(D, df = 3)
+  # Remove some data for memory
+  rm(spdf, spSample)
+  
+  # Plot bimodal if p <0.01, else unimodal
+  if(p < 0.01){
+    # Function to plot both normal distributions
+    plot_mix_comps <- function(x, mu, sigma, lam) {
+      lam * dnorm(x, mu, sigma)
+    }
+    # Plotting bimodal
+    p_b <- ggplot() +
+      geom_histogram(data = xyz,
+                     aes(x = z,
+                         ..density..,
+                         fill =..x..),
+                     bins = 100) +
+      stat_function(fun = plot_mix_comps, aes(colour = "1"),
+                    args = list(mixmdl$mu[1], mixmdl$sigma[1],
+                                lam = mixmdl$lambda[1]), lwd = 1.5) +
+      stat_function(fun = plot_mix_comps, aes(colour = "2"),
+                    args = list(mixmdl$mu[2], mixmdl$sigma[2],
+                                lam = mixmdl$lambda[2]), lwd = 1.5) +
+      geom_segment(aes(x = mixmdl$mu[1],
+                   xend = mixmdl$mu[1],
+                   y = 0,
+                   yend = max(density(xyz$z)$y)),
+                   colour = "blue",
+                   linetype = "dashed",
+                   size = 1.2
+                   ) +
+      geom_segment(aes(x = mixmdl$mu[2],
+                   xend = mixmdl$mu[2],
+                   y = 0,
+                   yend = max(density(xyz$z)$y)),
+                   colour = "green",
+                   linetype = "dashed",
+                   size = 1.2
+                   ) +
+      geom_text(aes(x = mixmdl$mu[1] + 0.08,
+                    y = max(density(xyz$z)$y) + 0.05,
+                    label = round(mixmdl$mu[1], 2)),
+                color = "blue"
+                ) + 
+      geom_text(aes(x = mixmdl$mu[2] + 0.08,
+                    y = max(density(xyz$z)$y) + 0.05,
+                    label = round(mixmdl$mu[2], 2)),
+                color = "green"
+                ) + 
+      scale_colour_manual("Component",
+                          values = c("1" = "blue",
+                                     "2" = "green")) +
+      scale_fill_gradientn(colours = c("blue",
+                                       "green",
+                                       "yellow",
+                                       "red")) +
+      theme_bw() + 
+      theme(legend.position = "none",
+            axis.title.x = element_text(face = "bold", 
+                                        vjust = 0.6,
+                                        size = 28), 
+            axis.title.y = element_text(face = "bold", 
+                                        vjust = 0.6,
+                                        size = 28),
+            axis.text.x = element_text(size = 24),
+            axis.text.y = element_text(size = 24),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank()
+            ) +
+      ylab("Density") +
+      xlab("Relative Elevation (m)")
+    
+    p_b
+    ggsave(plot = p_b, filename = paste0(s, "_Bimodal_detrended.tiff"),
+           device = "tiff",
+           width = 8, height = 6, 
+           units = "in")
+  } else {
+    # Function to plot normal distributions
+    plot_comps <- function(x, mu, sigma, lam) {
+      dnorm(x, mu, sigma)
+    }
+    # Plotting unimodal
+    p_u <- ggplot(data = xyz, aes(x = z,
+                                fill = ..x..)) +
+      geom_histogram(aes(z, 
+                         ..density..), 
+                     bins = 100) +
+      stat_function(fun = plot_comps,
+                    args = list(unimdl$estimate[1], unimdl$estimate[2]), 
+                    lwd = 1.5,
+                    color = "black") +
+      scale_fill_gradientn(colours = c("blue", 
+                                       "green", 
+                                       "yellow",
+                                       "red")) +
+      theme_bw() + 
+      theme(legend.position = "none",
+            axis.title.x = element_text(face = "bold", 
+                                        vjust = 0.6,
+                                        size = 28), 
+            axis.title.y = element_text(face = "bold", 
+                                        vjust = 0.6,
+                                        size = 28),
+            axis.text.x = element_text(size = 24),
+            axis.text.y = element_text(size = 24),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank()
+            ) +
+      ylab("Density") +
+      xlab("Relative Elevation (m)")
+    
+    p_u
+    ggsave(plot = p_u, filename = paste0(s, "_Unimodal_detrended.tiff"),
+           device = "tiff",
+           width = 8, height = 6, 
+           units = "in")
+  }
 }
 
-p <- ggplot(data = df, aes(x = Coord._Z,
-                           fill = ..x..)) +
-  geom_histogram(aes(Coord._Z, 
-                     ..density..), 
-                 bins = 72) +
-  stat_function(fun = plot_mix_comps, aes(colour = "1"),
-                args = list(mixmdl$mu[1], mixmdl$sigma[1], 
-                            lam = mixmdl$lambda[1]), lwd = 1.5) +
-  stat_function(fun = plot_mix_comps, aes(colour = "2"),
-                args = list(mixmdl$mu[2], mixmdl$sigma[2], 
-                            lam = mixmdl$lambda[2]), lwd = 1.5) +
-  scale_colour_manual("Component", 
-                      values = c("1" = "blue", 
-                                 "2" = "green")) +
-  scale_fill_gradientn(colours = c("blue", 
-                                   "green", 
-                                   "yellow",
-                                   "red")) +
-  theme_bw() + 
-  theme(legend.position = "none",
-        axis.title.x = element_text(face = "bold", 
-                                    vjust = 0.6,
-                                    size = 28), 
-        axis.title.y = element_text(face = "bold", 
-                                    vjust = 0.6,
-                                    size = 28),
-        axis.text.x = element_text(size = 24),
-        axis.text.y = element_text(size = 24),
-        panel.grid.major.x = element_line(size = 0.8,
-                                          linetype = "dashed",
-                                          color = "dark grey"),
-        panel.grid.minor.x = element_blank(),
-        panel.grid.minor.y = element_blank(),
-        panel.grid.major.y = element_line(size = 0.8,
-                                          linetype = "dashed",
-                                          color = "dark grey")) +
-  ylab("Density") +
-  xlab("Relative Elevation (m)")
-ggsave(plot = p, filename = "D2_Bimodal.png",
-       width = 8, height = 6, 
-       units = "in")
 
-
-fit <- fitdistr(df$z, "normal")
-para <- fit$estimate
-uni <- fit$loglik
-bi <- mixmdl$loglik
-D <- 2 * (bi - uni)
-
-pchisq(D, df=2, lower.tail=FALSE)
-
-# Semivariogram analysis
-points <- SpatialPoints(xyz[,1:2], xyz[,3])
-xyspatial <- SpatialPoints(cbind(df_z$x, df_z$y))
-zspatial <- data.frame(df_z$z)
-spatialdata <- SpatialPointsDataFrame(xyspatial, zspatial)
-spatialdata <- as(dfr, 'SpatialPointsDataFrame')
-xyz <- as.data.frame(spatialdata)
-xyz$D1_1cm <- ifelse(xyz$D1_1cm == min(xyz$D1_1cm),
-                     NA,
-                     xyz$D1_1cm)
-xyz <- na.omit(xyz)
-zvario <- variogram(spatialdata$D1_1cm ~ 1, 
-                    locations = spatialdata,
-                    width = 0.1)
-
-zsill <- var(df$Coord._Z)
-plot(zvario$dist, zvario$gamma, 
+# Semivariogram analysis --------------------------------------------------
+vario <- variogram(D1_1cm ~ 1,
+                   data = spSample)
+zsill <- var(spdf$D1_1cm)
+plot(vario$dist, vario$gamma, 
      # xlim=c(0,8000),
      # ylim = c(0, zsill + 1),
      xlab="Distance (m)",
@@ -235,12 +195,16 @@ text(2,
      zsill + 0.001, 
      paste("Sill =", round(zsill, 3)))
 
+
+
+
+
 locminlocations <- which(diff(sign(diff(zvario$gamma)))==-2)+1
 locmin <- zvario$dist[locminlocations]
 locmin <- locmin[-c(1:6, 8:11, 13:19, 21:22, 24:25)]
 
 
-zvm <- fit.variogram(zvario, model = vgm("Pow", 0.02117),
+zvm <- fit.variogram(gstat_variogram, model = vgm(c("Exp", "Sph")),
                      fit.sills = FALSE)
 curve(0.02117 * (1 - exp(-x / 2.638637)), add = TRUE)
 

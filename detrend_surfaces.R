@@ -51,30 +51,30 @@ for (i in 1:length(filenames)){
   resid.linear <- fit.linear$residuals
   
   # Recreate the dataframe with coordinates and residuals
-  xyzr <- 
-  xyzr$resid <- resid.linear
+  xyz$resid <- resid.linear
   # Remove data for less memory
   rm(resid.linear)
   
   # convert back to rasterlayer
   # Rasterize based on original raster extent, possibly used for spatial analysis
-  r.detrend <- rasterize(xyz[, 1:2], r, xyz[, 3], fun = mean)
-  writeRaster(r.detrend,
-              paste0(s, "_1cm_detrend.tif"),
-              options = c('TFW = YES')
-  )
+  # Only need to do this the first time running
+  # r.detrend <- rasterize(xyz[, 1:2], r, xyz[, 4], fun = mean)
+  # writeRaster(r.detrend,
+  #             paste0(s, "_1cm_detrend.tif"),
+  #             options = c('TFW = YES')
+  # )
   # Remove data for less memory
   rm(xyz, r.detrend, r)
   # Calculate detrended data
-  # detrended <- dplyr::filter(elev, 
-  #                            site == s) %>%
-  #   select(x, y) %>%
-  #   mutate(z_mod = predict(fit.linear, newdata = .)) %>%
-  #   inner_join(elev, by = c("x", "y"))
-  # if(i == 1){
-  #   result <- detrended
-  # } else {
-  #   result <- rbind(result, detrended)
+  detrended <- dplyr::filter(elev,
+                             site == s) %>%
+    select(x, y) %>%
+    mutate(z_mod = predict(fit.linear, newdata = .)) %>%
+    inner_join(elev, by = c("x", "y"))
+  if(i == 1){
+    result <- detrended
+  } else {
+    result <- rbind(result, detrended)
   }
 }
 

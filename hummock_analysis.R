@@ -17,6 +17,10 @@ library(scales)
 
 # Get hummock data (x, y, area, vol, perim)
 df <- read.csv("Lidar/site_hum_stats.csv")
+
+
+# Hummock spatial analysis ------------------------------------------------
+
 df_d2 <- df[df$site == "T1", ]
 df_d2.big <- dplyr::filter(df_d2, area > 0.3)
 d2_ppp <- ppp(x = df_d2$x,
@@ -150,65 +154,85 @@ plot(Ki)
 
 
 
-
-df_d2.h <- df_d2 %>%
+# Hummock distribution analysis -------------------------------------------
+# Get data in descending rank order
+df_h <- df %>%
+  dplyr::select(-x, -y) %>%
   gather(key = "measure.type", value = "measure",
-         -x,
-         -y,
          -site) %>%
-  group_by(measure.type) %>%
+  group_by(site, measure.type) %>%
   mutate(rank = cume_dist(desc(measure)))
- 
 
-# Fit exponential line
-mod <- tidy(lm(rank ~ exp(area), data = df_d2.h))
+# Model for exponential estimate model
+e_mod <- function(data) {
+  lm(rank ~ exp(measure), data = data)
+}
+
+# Fit exponential line to area, perim, vol
+mod <- df_h %>%
+  group_by(site, measure.type) %>%
+  nest() %>%
+  mutate(model = map(data, e_mod),
+         tidied = map(model, tidy)) %>% 
+  unnest(tidied, .drop = TRUE) %>%
+  ungroup()
+
+df_h$measure.type <- factor(df_h$measure.type,
+                            levels = c("perimeter",
+                                       "area",
+                                       "volume"))
+levels(df_h$measure.type) <- c("Perimeter~(m)",
+                               "Area~(m^{2})",
+                               "Volume~(m^{3})")
 
 # Plot
-p_exp2 <- ggplot(data = df_d2.h,
+p_rank <- ggplot(data = df_h,
                 aes(x = measure,
-                    y = rank)) +
-  geom_point(size = 3,
-             shape = 1) +
+                    y = rank,
+                    shape = site)) +
+  geom_point(size = 3) +
+  scale_shape_manual(name = "Site",
+                     values = c(1, 16)) +
   stat_smooth(formula = y ~ exp(x)) +
-  facet_wrap(~measure.type) +
-  # annotate("text",
-  #          x = 0.001,
-  #          y = 0.1,
-  #          label = "p = 1.8E-18",
-  #          size = 6) + 
+  facet_wrap(~measure.type,
+             labeller = label_parsed) +
   theme_bw() +
   scale_x_log10(
     labels = trans_format('log10', math_format(10 ^ .x))
-    # ,
-    # limits = c(10 ^ -3.3, 10 ^ -0.3),
-    # breaks = c(10 ^ -3, 10 ^ -2, 10 ^ -1)
+    ,
+    limits = c(10 ^ -1.2, 10 ^ 1.2),
+    breaks = c(10 ^ -1, 10 ^ -0, 10 ^ 1)
     ) +
   scale_y_log10(
     labels = trans_format('log10', math_format(10 ^ .x))
-    # ,
-    # limits = c(10 ^ -2, 10 ^ 0),
-    # breaks = c(10 ^ -2, 10 ^ -1, 10 ^ 0)
+    ,
+    limits = c(10 ^ -2.2, 10 ^ 0.2),
+    breaks = c(10 ^ -2, 10 ^ -1, 10 ^ 0)
     ) +
+  annotation_logticks(base = 10, sides = "tlbr") + 
   theme(
-    axis.line.x = element_line(colour = "black"),
-    axis.line.y = element_line(colour = "black"),
     axis.title = element_text(face = "bold", size = 18),
     axis.text = element_text(size = 18, colour = "black"),
     panel.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold", size = 16),
+    aspect.ratio = 1,
     legend.title = element_blank(),
     legend.position = c(0.12, 0.17),
-    plot.title = element_text(lineheight = .8, face = "bold"),
     legend.text = element_text(size = 16),
     legend.background = element_rect(
       fill = "gray90",
       size = 1,
       linetype = "solid",
-      colour = "black"))
-  # xlab(expression("Hummock volume, v (" * m ^ 3 * ")")) +
-  # ylab(expression("P (" * V>=v* ")"))
-p_exp2
-p_exp
+      colour = "black")) + 
+  xlab("") +
+  ylab(expression("P (" * X>=x * ")"))
 
-ggsave(p_exp, filename = "D2_hummock_exponential.tiff",
+p_rank
+
+ggsave(p_rank, filename = "Hummock_exponential.tiff",
        device = "tiff",
-       dpi = 600)
+       dpi = 600,
+       width = 10,
+       height = 6)
