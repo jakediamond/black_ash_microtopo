@@ -16,17 +16,21 @@ library(MASS)
 library(scales)
 
 # Get hummock data (x, y, area, vol, perim)
-df <- read.csv("Lidar/site_hum_stats.csv")
+df <- read.csv("Lidar/delineate_all_sites.csv")
 
+# Total hummock areas
+areas <- df %>%
+  group_by(site) %>%
+  summarize(a_tot = sum(area))
 
 # Hummock spatial analysis ------------------------------------------------
 
-df_d2 <- df[df$site == "T1", ]
+df_d2 <- df[df$site == "D2", ]
 df_d2.big <- dplyr::filter(df_d2, area > 0.3)
 d2_ppp <- ppp(x = df_d2$x,
               y = df_d2$y,
-              xrange = c(-15, 15),
-              yrange = c(-20, 10),
+              xrange = c(-10, 30),
+              yrange = c(-22, 20),
               marks = df_d2$area)
 unitname(d2_ppp) <- c("meter", "meter")
 
@@ -157,7 +161,7 @@ plot(Ki)
 # Hummock distribution analysis -------------------------------------------
 # Get data in descending rank order
 df_h <- df %>%
-  dplyr::select(-x, -y) %>%
+  dplyr::select(-(1:6)) %>%
   gather(key = "measure.type", value = "measure",
          -site) %>%
   group_by(site, measure.type) %>%
@@ -189,10 +193,10 @@ levels(df_h$measure.type) <- c("Perimeter~(m)",
 p_rank <- ggplot(data = df_h,
                 aes(x = measure,
                     y = rank,
-                    shape = site)) +
+                    color = site)) +
   geom_point(size = 3) +
-  scale_shape_manual(name = "Site",
-                     values = c(1, 16)) +
+  # scale_shape_manual(name = "Site",
+  #                    values = c(1, 16)) +
   stat_smooth(formula = y ~ exp(x)) +
   facet_wrap(~measure.type,
              labeller = label_parsed) +

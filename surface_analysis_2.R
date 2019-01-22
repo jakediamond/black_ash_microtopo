@@ -19,6 +19,9 @@ library(gstat)
 filenames <- paste("Lidar/detrended/", 
                    list.files("Lidar/detrended"), 
                    sep = "")
+filenames <- paste("Lidar/Rasters/", 
+                   list.files("Lidar/Rasters"), 
+                   sep = "")
 # Bimodal analysis --------------------------------------------------------
 for (i in 1:length(filenames)){
   rm(p_b, p_u)
@@ -36,7 +39,13 @@ for (i in 1:length(filenames)){
   xyz <- rasterToPoints(r)
   xyz <- as.data.frame(xyz)
   colnames(xyz)[3] <- "z"
-  xyz <- dplyr::filter(xyz, z < quantile(z, 0.9))
+  # Only want data in the center of the site; edges are not representative
+  xyz <- subset(xyz, between(xyz$x, 
+                             quantile(xyz$x, 0.3), 
+                             quantile(xyz$x, 0.7)))
+  xyz <- subset(xyz, between(xyz$y, 
+                             quantile(xyz$y, 0.3), 
+                             quantile(xyz$y, 0.7)))
   xy <- xyz[, c(1, 2)]
   spdf <- SpatialPointsDataFrame(coords = xy, 
                                  data = xyz,
@@ -133,7 +142,7 @@ for (i in 1:length(filenames)){
       xlab("Relative Elevation (m)")
     
     p_b
-    ggsave(plot = p_b, filename = paste0(s, "_Bimodal_detrended.tiff"),
+    ggsave(plot = p_b, filename = paste0(s, "_Bimodal.tiff"),
            device = "tiff",
            width = 8, height = 6, 
            units = "in")
@@ -173,7 +182,7 @@ for (i in 1:length(filenames)){
       xlab("Relative Elevation (m)")
     
     p_u
-    ggsave(plot = p_u, filename = paste0(s, "_Unimodal_detrended.tiff"),
+    ggsave(plot = p_u, filename = paste0(s, "_Unimodal.tiff"),
            device = "tiff",
            width = 8, height = 6, 
            units = "in")
