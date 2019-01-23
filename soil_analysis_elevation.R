@@ -22,8 +22,20 @@ df <- read.csv("Soil Extraction Chemistry/meta_for_r.csv",
 df_chem <- read.csv("Soil Extraction Chemistry/soil_chem_r.csv",
                     stringsAsFactors = FALSE)
 df_cn <- read.csv("CN_r.csv")
-elev <- read.csv("C:/Users/diamo/Dropbox/Projects/EAB/Data/relative_elevations.csv")
+# elev <- read.csv("C:/Users/diamo/Dropbox/Projects/EAB/Data/relative_elevations.csv")
+elev <- read.csv("C:/Users/diamo/Dropbox/Projects/EAB/Data/relative_elevations_quad.csv")
 elev$X <- NULL
+df <- read.csv("depth_to_confining.csv",
+                    stringsAsFactors = FALSE) %>%
+  fill(plot) %>%
+  right_join(df)
+
+# Make sure that depth to confining layer is numeric
+# and account for data >120 cm
+df$depth <- ifelse(df$depth == ">120",
+                   "150",
+                   df$depth)
+df$depth <- as.numeric(df$depth)
 
 # Change B sites to L sites
 df[df$site == "B1", "site"] <- "L1"
@@ -82,29 +94,29 @@ df_cn_rep <- df_cn %>%
                        .keep_all = TRUE))
 
 # Graph of rpd
-p_rep_cn <- ggplot(data = df_cn_rep, 
-                aes(x = solute,
-                    y = rpd)) +
-  geom_bar(stat = "summary", 
-           fun.y = "mean",
-           position = "dodge") + 
-  stat_summary(fun.data = mean_se, 
-               geom = "errorbar",
-               width = 0.4,
-               position = "dodge") +
-  theme_bw() + 
-  facet_wrap(~site) +
-  xlab("Solute") + 
-  ylab("Relative percent difference (%)")
+# p_rep_cn <- ggplot(data = df_cn_rep, 
+#                 aes(x = solute,
+#                     y = rpd)) +
+#   geom_bar(stat = "summary", 
+#            fun.y = "mean",
+#            position = "dodge") + 
+#   stat_summary(fun.data = mean_se, 
+#                geom = "errorbar",
+#                width = 0.4,
+#                position = "dodge") +
+#   theme_bw() + 
+#   facet_wrap(~site) +
+#   xlab("Solute") + 
+#   ylab("Relative percent difference (%)")
 
-p_rep_cn
+# p_rep_cn
 # Save plot
-ggsave(plot = p_rep_cn, 
-       "rpd_for_replicates_cn_site.tiff",
-       device = "tiff",
-       width = 8,
-       height = 6,
-       units = "in")
+# ggsave(plot = p_rep_cn, 
+       # "rpd_for_replicates_cn_site.tiff",
+       # device = "tiff",
+       # width = 8,
+       # height = 6,
+       # units = "in")
 
 # Get all data in one place
 df_cn_all <- df_cn %>%
@@ -152,29 +164,29 @@ df_chem_rep2 <- df %>%
   right_join(df_chem_rep, by = "reps")
 
 # Graph of rpd
-p_rep_chem <- ggplot(data = df_chem_rep2, 
-                aes(x = solute,
-                    y = rpd)) +
-  geom_bar(stat = "summary", 
-           fun.y = "mean",
-           position = "dodge") + 
-  stat_summary(fun.data = mean_se, 
-               geom = "errorbar",
-               width = 0.4,
-               position = "dodge") +
-  theme_bw() + 
-  facet_wrap(~site) +
-  xlab("Solute") + 
-  ylab("Relative percent difference (%)")
+# p_rep_chem <- ggplot(data = df_chem_rep2, 
+#                 aes(x = solute,
+#                     y = rpd)) +
+#   geom_bar(stat = "summary", 
+#            fun.y = "mean",
+#            position = "dodge") + 
+#   stat_summary(fun.data = mean_se, 
+#                geom = "errorbar",
+#                width = 0.4,
+#                position = "dodge") +
+#   theme_bw() + 
+#   facet_wrap(~site) +
+#   xlab("Solute") + 
+#   ylab("Relative percent difference (%)")
 
-p_rep_chem
+# p_rep_chem
 # Save plot
-ggsave(plot = p_rep_chem, 
-       "rpd_for_replicates_chem_site.tiff",
-       device = "tiff",
-       width = 8,
-       height = 6,
-       units = "in")
+# ggsave(plot = p_rep_chem, 
+       # "rpd_for_replicates_chem_site.tiff",
+       # device = "tiff",
+       # width = 8,
+       # height = 6,
+       # units = "in")
 
 
 # Get all data in one place
@@ -188,10 +200,12 @@ df_chem_all <- df_chem %>%
   mutate(sample_id = reps,
          sample_id = as.integer(sample_id))
 
+# Add CN data to metadata
 df_chem_spread <- df_chem_all %>%
   spread(solute, mean) %>%
   right_join(df)
 
+# Put data in long format with metadata
 df_chem_l <- df_chem_spread %>%
   gather(key = solute, 
          value = conc,
@@ -215,7 +229,10 @@ df_data_w <- df_chem_spread %>%
 x <- df_data_w %>%
   dplyr::filter(sample_id != 196) %>%
   mutate(z_rel_mean = z_rel - mean,
-         z_rel.d_mean = z_rel.d - mean) %>%
+         z_rel.d_mean = z_rel.d - mean,
+         z_rel_conf = z_rel - depth / 100,
+         z_rel.d_conf = z_rel.d - depth / 100,
+         z_conf = z - depth / 100) %>%
   dplyr::select(-sample_id,
          -(site:intermediate),
          -point_id,
@@ -224,13 +241,6 @@ x <- df_data_w %>%
   as.matrix() %>%
   na.omit()
 corrplot(cor(x), method="number")
-
-# Quick plot of hummock heights
-ggplot(data = na.omit(df),
-       aes(x = hu.ho,
-           y = z_rel.d)) +
-  geom_boxplot() + 
-  facet_wrap(~site)
 
 # Strip panel names for plot
 df_data_l$solute <- factor(df_data_l$solute,
@@ -262,9 +272,11 @@ chem_p <- ggplot(data = dplyr::filter(df_data_l,
                                       # , !(site %in% c("L1",
                                       #               "L2",
                                       #               "L3"))
+                                      , site %in% c("D3", "T1",
+                                                    "T2", "D4")
                                       , log == 0
                                       ),
-                 aes(x = (z_rel.d - mean),
+                 aes(x = z_rel.d - quant_20,
                      y = conc
                      , color = site
                      )
@@ -298,18 +310,19 @@ for(i in 1:length(sites)){
     png(filename = paste(
       sit,
       solute,
-      ".png", 
+      "quad.png", 
       sep = "_"), 
       width = 800, 
       height = 800)
-    scatter3D(df_3d$x, 
+    text3D(df_3d$x, 
               df_3d$y, 
               df_3d$z_rel.d, 
               bty = "b2", 
               pch = 19,
               main = tit,
+              labels = df_3d$point,
               colvar = color_pts, 
-              cex = 6, 
+              cex = 2, 
               ticktype = "detailed"
               , theta = 45,
               phi = 30

@@ -13,19 +13,46 @@ library(tidyverse)
 library(broom)
 
 # Load data
-elev <- read.csv("relative_elevations.csv",
+elev <- read.csv("relative_elevations_quad.csv",
                  stringsAsFactors = FALSE)
-elev$X <- NULL
-huho <- read.csv("hu.ho.csv", stringsAsFactors = FALSE)
+elev$X.1 <- NULL
+conf <- read.csv("Soils/depth_to_confining.csv",
+               stringsAsFactors = FALSE) %>%
+  fill(plot)
+huho <- read.csv("hu.ho.csv", 
+                 stringsAsFactors = FALSE)
 
 # Data cleaning
 huho$point <- paste(huho$plot, huho$position, sep = ".")
+conf$point <- paste(conf$plot, conf$point, sep = ".")
 huho[huho$site == "B1", "site"] <- "L1"
 huho[huho$site == "B3", "site"] <- "L2"
 huho[huho$site == "B6", "site"] <- "L3"
+conf[conf$site == "B1", "site"] <- "L1"
+conf[conf$site == "B3", "site"] <- "L2"
+conf[conf$site == "B6", "site"] <- "L3"
 
 # Join data
-df <- left_join(huho, elev, by = c("site", "plot" , "point"))
+df <- left_join(huho, elev, by = c("site", "plot" , "point")) %>%
+  left_join(conf)
+
+# Make sure that depth to confining layer is numeric
+# and account for data >120 cm
+df$depth <- ifelse(df$depth == ">120",
+                   "150",
+                   df$depth)
+df$depth <- as.numeric(df$depth)
+
+# Plot confining depth vs elevation
+ggplot(data = df,
+       aes(x = -depth/100,
+           y = z_d)) +
+  geom_point() +
+  ylab(expression("Elevation(m)")
+  ) +
+  xlab("Depth to confining (m)") +
+  theme_bw() +
+  facet_wrap(~site, scales = "free")
 
 # t-tests for hummock-hollow elevation difference
 ttests_site <- df %>%

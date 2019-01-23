@@ -1,6 +1,6 @@
 # 
 # Author: Jake Diamond
-# Purpose: Detrend surface models to 
+# Purpose: Detrend surface models to remove broad slopes for more consistent comparison across points
 # Date: December 1, 2018
 # 
 
@@ -45,15 +45,23 @@ for (i in 1:length(filenames)){
   colnames(xyz)[3] <- "z"
   
   # Fit a linear detrend
-  fit.linear <- lm(z ~ x + y, data = xyz)
+  # fit.linear <- lm(z ~ x + y, data = xyz)
+  
+  # Fit a quadratic detrend
+  fit.quad <- lm(z ~ poly(x, y, 
+                          degree = 2),
+                 data = xyz)
   
   # Get residuals. These are the corrections to raw elevations
-  resid.linear <- fit.linear$residuals
+  # resid.linear <- fit.linear$residuals
+  resid.quad <- fit.quad$residuals
   
   # Recreate the dataframe with coordinates and residuals
-  xyz$resid <- resid.linear
+  # xyz$resid <- resid.linear
+  xyz$resid <- resid.quad
   # Remove data for less memory
-  rm(resid.linear)
+  # rm(resid.linear)
+  rm(resid.quad)
   
   # convert back to rasterlayer
   # Rasterize based on original raster extent, possibly used for spatial analysis
@@ -68,14 +76,17 @@ for (i in 1:length(filenames)){
   # Calculate detrended data
   detrended <- dplyr::filter(elev,
                              site == s) %>%
-    select(x, y) %>%
-    mutate(z_mod = predict(fit.linear, newdata = .)) %>%
+    dplyr::select(x, y) %>%
+  # mutate(z_mod = predict(fit.linear, newdata = .)) %>%
+    mutate(z_mod = predict(fit.quad, newdata = .)) %>%
+  # inner_join(elev, by = c("x", "y"))
     inner_join(elev, by = c("x", "y"))
+
   if(i == 1){
     result <- detrended
   } else {
     result <- rbind(result, detrended)
   }
 }
-
-write.csv(result, "valpts_detrend_r.csv")
+# write.csv(result, "valpts_detrend_r.csv")
+write.csv(result, "valpts_detrend_quad_r.csv")

@@ -14,7 +14,8 @@ library(broom)
 library(lubridate)
 
 # Load raw elevation data
-elev <- read.csv("valpts_detrend_r.csv")
+# elev <- read.csv("valpts_detrend_r.csv")
+elev <- read.csv("valpts_detrend_quad_r.csv")
 elev$X <- NULL
 
 # Calculate detrended elevations
@@ -59,5 +60,6 @@ elev_rel <- elev %>%
   left_join(hydro_well)
 
 # Save data
-write.csv(elev_rel, "relative_elevations.csv")
+# write.csv(elev_rel, "relative_elevations.csv")
+write.csv(elev_rel, "relative_elevations_quad.csv")
 
