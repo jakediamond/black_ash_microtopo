@@ -6,68 +6,85 @@
 
 # Set Working Directory
 # setwd("E:/Dropbox/Dropbox/Projects/EAB/Data/Soils/Soil Extraction Chemistry")
-setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data/Soils/Soil Extraction Chemistry")
+setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data/Soils")
 
 # Load Libraries
 library(tidyverse)
 library(broom)
 library(lubridate)
 library(viridis)
+library(corrplot)
+library(plot3D)
 
 # Load data
-df <- read.csv("meta_for_r.csv", stringsAsFactors = FALSE)
-df2 <- read.csv("soil_chem_r.csv")
+df <- read.csv("Soil Extraction Chemistry/meta_for_r.csv",
+               stringsAsFactors = FALSE)
+df_chem <- read.csv("Soil Extraction Chemistry/soil_chem_r.csv",
+                    stringsAsFactors = FALSE)
+df_cn <- read.csv("CN_r.csv")
 elev <- read.csv("C:/Users/diamo/Dropbox/Projects/EAB/Data/relative_elevations.csv")
 elev$X <- NULL
-
-# Change point column in df to match elev
-df$point <- paste(df$plot, df$point, sep = ".")
 
 # Change B sites to L sites
 df[df$site == "B1", "site"] <- "L1"
 df[df$site == "B3", "site"] <- "L2"
 df[df$site == "B6", "site"] <- "L3"
 
-# Combine elevation and meta data
-df <- left_join(df, elev, by = c("site", "plot", "point"))
+# Change point columns to match elev format (Plot.Point)
+df$point <- paste(df$plot, df$point, sep = ".")
 
-# Quick plot of hummock heights
-ggplot(data = df,
-       aes(x = hu.ho,
-           y = z_relh_mean)) +
-  geom_boxplot() + 
-  facet_wrap(~site)
+# CN analysis -------------------------------------------------------------
+# Subset CN data for what we need
+df_cn <- df_cn %>%
+  dplyr::select(Name,
+                X..N,
+                X..C,
+                CNRatio) %>%
+  rename(N = X..N,
+         C = X..C,
+         CN = CNRatio)
 
+# Get sites in correct format for CN data
+df_cn$site <- str_sub(df_cn$Name,
+                      start = 1,
+                      end = 2)
 
-# Find replicates
-df2$sample_id <- as.character(df2$sample_id)
-df2$reps <- unlist(strsplit(df2$sample_id, "R"))
+# Get replicates in similar format to soil extraction data
+df_cn$Name <- as.character(df_cn$Name)
+df_cn$reps <- str_trim(unlist(strsplit(df_cn$Name, "R")))
 
-# Make calcium numeric because it thinks its a character
-df2$ca <- as.numeric(df2$ca)
+# Change B sites to L sites
+df_cn[df_cn$site == "B1", "site"] <- "L1"
+df_cn[df_cn$site == "B3", "site"] <- "L2"
+df_cn[df_cn$site == "B6", "site"] <- "L3"
+
+# Change point columns to match elev format (Plot.Point)
+df_cn$point <- str_sub(df_cn$reps,
+                       start = 4,
+                       end = -1L)
 
 # Find average and rpd of replicates
-df_rep <- df2 %>%
+df_cn_rep <- df_cn %>%
   group_by(reps) %>%
-  filter(n() > 1) %>%
+  dplyr::filter(n() > 1) %>%
   group_by(reps) %>%
-  summarize_at(vars(cl:po4),
+  summarize_at(vars(N:CN),
                funs(mean, diff)) %>%
   gather(key, value, -reps) %>%
   extract(key, c("solute", "calc"), "(^[^_]+)_(.*)$") %>%
   spread(calc, value) %>%
   mutate(rpd = abs(diff) * 100 / mean) %>%
-  mutate(reps = as.numeric(reps))
-
-df_rep2 <- df %>%
-  rename(reps = sample_id) %>%
-  right_join(df_rep)
+  left_join(dplyr::select(df_cn,
+                          site,
+                          reps,
+                          point) %>%
+              distinct(site, point,
+                       .keep_all = TRUE))
 
 # Graph of rpd
-p_rep <- ggplot(data = df_rep2, 
+p_rep_cn <- ggplot(data = df_cn_rep, 
                 aes(x = solute,
-                    y = rpd,
-                    fill = hu.ho)) +
+                    y = rpd)) +
   geom_bar(stat = "summary", 
            fun.y = "mean",
            position = "dodge") + 
@@ -80,68 +97,240 @@ p_rep <- ggplot(data = df_rep2,
   xlab("Solute") + 
   ylab("Relative percent difference (%)")
 
-p_rep
+p_rep_cn
 # Save plot
-ggsave(plot = p_rep, 
-       "rpd_for_replicates_huho_site.tiff",
+ggsave(plot = p_rep_cn, 
+       "rpd_for_replicates_cn_site.tiff",
        device = "tiff",
        width = 8,
        height = 6,
        units = "in")
 
 # Get all data in one place
-df3 <- df2 %>%
+df_cn_all <- df_cn %>%
+  group_by(reps) %>%
+  filter(n() == 1) %>%
+  gather(solute, mean, -reps, -Name, -site, -point) %>%
+  ungroup() %>%
+  full_join(df_cn_rep) %>%
+  select(-rpd, -diff, -Name, -reps)
+
+# Add CN data to metadata
+df_cn_spread <- df_cn_all %>%
+  spread(solute, mean) %>%
+  right_join(df)
+
+# Put data in long format with metadata
+df_cn_l <- df_cn_spread %>%
+  gather(key = solute, 
+         value = conc,
+         C, N, CN)
+
+# Soil Extraction analysis -------------------------------------------------
+# Same thing for chemistry data
+df_chem$sample_id <- as.character(df_chem$sample_id)
+df_chem$reps <- unlist(strsplit(df_chem$sample_id, "R"))
+
+# Make calcium numeric because it thinks its a character
+df_chem$ca <- as.numeric(df_chem$ca)
+
+# Find average and rpd of replicates
+df_chem_rep <- df_chem %>%
+  group_by(reps) %>%
+  dplyr::filter(n() > 1) %>%
+  group_by(reps) %>%
+  summarize_at(vars(cl:po4),
+               funs(mean, diff)) %>%
+  gather(key, value, -reps) %>%
+  extract(key, c("solute", "calc"), "(^[^_]+)_(.*)$") %>%
+  spread(calc, value) %>%
+  mutate(rpd = abs(diff) * 100 / mean) %>%
+  mutate(reps = as.numeric(reps))
+
+df_chem_rep2 <- df %>%
+  rename(reps = sample_id) %>%
+  right_join(df_chem_rep, by = "reps")
+
+# Graph of rpd
+p_rep_chem <- ggplot(data = df_chem_rep2, 
+                aes(x = solute,
+                    y = rpd)) +
+  geom_bar(stat = "summary", 
+           fun.y = "mean",
+           position = "dodge") + 
+  stat_summary(fun.data = mean_se, 
+               geom = "errorbar",
+               width = 0.4,
+               position = "dodge") +
+  theme_bw() + 
+  facet_wrap(~site) +
+  xlab("Solute") + 
+  ylab("Relative percent difference (%)")
+
+p_rep_chem
+# Save plot
+ggsave(plot = p_rep_chem, 
+       "rpd_for_replicates_chem_site.tiff",
+       device = "tiff",
+       width = 8,
+       height = 6,
+       units = "in")
+
+
+# Get all data in one place
+df_chem_all <- df_chem %>%
   mutate(reps = as.numeric(reps)) %>%
   group_by(reps) %>%
   filter(n() == 1) %>%
   gather(solute, mean, -reps, -sample_id) %>%
-  full_join(df_rep) %>%
+  full_join(df_chem_rep) %>%
   select(-rpd, -diff) %>%
   mutate(sample_id = reps,
          sample_id = as.integer(sample_id))
 
-df <- df3 %>%
+df_chem_spread <- df_chem_all %>%
   spread(solute, mean) %>%
   right_join(df)
 
-df_l <- df %>%
+df_chem_l <- df_chem_spread %>%
   gather(key = solute, 
          value = conc,
          ca, cl, mg, no3, po4, so4)
 
+# Overall soil analysis ---------------------------------------------------
+# Combine CN and soil chem extraction data (long and wide)
+df_data_l <- df_chem_l %>%
+  ungroup() %>%
+  dplyr::select(-reps) %>%
+  bind_rows(ungroup(df_cn_l)) %>%
+  left_join(elev, by = c("site", "plot", "point"))
+
+df_data_w <- df_chem_spread %>%
+  ungroup() %>%
+  dplyr::select(-reps) %>%
+  left_join(df_cn_spread) %>%
+  left_join(elev, by = c("site", "plot", "point"))
+
+# Correlation plot
+x <- df_data_w %>%
+  dplyr::filter(sample_id != 196) %>%
+  mutate(z_rel_mean = z_rel - mean,
+         z_rel.d_mean = z_rel.d - mean) %>%
+  dplyr::select(-sample_id,
+         -(site:intermediate),
+         -point_id,
+         -(mean:quant_20),
+         -(z_well:z_well.d)) %>%
+  as.matrix() %>%
+  na.omit()
+corrplot(cor(x), method="number")
+
+# Quick plot of hummock heights
+ggplot(data = na.omit(df),
+       aes(x = hu.ho,
+           y = z_rel.d)) +
+  geom_boxplot() + 
+  facet_wrap(~site)
+
 # Strip panel names for plot
-levels(df_l$solute) <- c("Ca^{`2+`}",
+df_data_l$solute <- factor(df_data_l$solute,
+                           levels = c("ca",
+                                      "cl",
+                                      "mg",
+                                      "no3",
+                                      "po4",
+                                      "so4",
+                                      "C",
+                                      "N",
+                                      "CN"))
+levels(df_data_l$solute) <- c("Ca^{`2+`}",
                          "Cl^{`-`}",
                          "Mg^{`2+`}",
                          "NO[3]^{`-`}",
                          "PO[4]^{`3-`}",
-                         "SO[4]^{`2-`}")
+                         "SO[4]^{`2-`}",
+                         "'%'*C",
+                         "'%'*N",
+                         "C:N")
 
 # Plot
-chem_p <- ggplot(data = dplyr::filter(df_l,
-                                      # !(site %in% 
-                                      #     c("L1", "L2", "L3")
-                                      #   ),
-                                      # site == "D1",
-                                      !(solute == "cl" &
-                                          conc > 30),
-                                      log == 0
+chem_p <- ggplot(data = dplyr::filter(df_data_l,
+                                      !(solute == "Cl^{`-`}" &
+                                          conc > 30)
+                                      , !(solute == "NO[3]^{`-`}" &
+                                          conc > 1)
+                                      # , !(site %in% c("L1",
+                                      #               "L2",
+                                      #               "L3"))
+                                      , log == 0
                                       ),
-                 aes(x = z_rel.d - (median - (z_mod)),
-                     y = conc,
-                     colour = site)) +
+                 aes(x = (z_rel.d - mean),
+                     y = conc
+                     , color = site
+                     )
+                 ) +
   geom_point(aes(shape = hu.ho)) +
-  geom_smooth() +
+  # geom_smooth(se = FALSE) +
   scale_shape_manual(name = "",
                      values = c(1, 16)) +
   scale_colour_viridis(discrete = TRUE) +
-  ylab(expression("Soil Extraction Concentration (mg "*L^{-1}*")")) +
+  ylab(expression("Soil Extraction Concentration (mg "*L^{-1}*")")
+       ) +
   xlab("Relative elevation (m)") +
   theme_bw() +
   theme(legend.position = "bottom") +
   facet_wrap(~solute, scales = "free",
              labeller = label_parsed)
 chem_p
+
+
+# 3D plots of all soil data -----------------------------------------------
+sites <- unique(df_data_w$site)
+solutes <- c("ca", "cl", "mg", "no3", 
+             "po4", "so4", "C", "N", "CN")
+for(i in 1:length(sites)){
+  sit = sites[i]
+  df_3d <- dplyr::filter(df_data_w, site == sit)
+  for(j in 1:length(solutes)){
+    solute = solutes[j]
+    color_pts = dplyr::pull(df_3d, solute)
+    tit = paste(sit, solute)
+    png(filename = paste(
+      sit,
+      solute,
+      ".png", 
+      sep = "_"), 
+      width = 800, 
+      height = 800)
+    scatter3D(df_3d$x, 
+              df_3d$y, 
+              df_3d$z_rel.d, 
+              bty = "b2", 
+              pch = 19,
+              main = tit,
+              colvar = color_pts, 
+              cex = 6, 
+              ticktype = "detailed"
+              , theta = 45,
+              phi = 30
+              # ,
+              # colkey = list(at = c(2, 3, 4), side = 1, 
+              # addlines = TRUE, 
+              # length = 0.5, 
+              # width = 0.5
+              # ,labels = c("setosa", 
+              # "versicolor", 
+              # "virginica")
+              # ) 
+    )
+    dev.off()
+    
+  }
+}
+
+
+
+
 
 chem_p2 <- ggplot(data = dplyr::filter(df_l, solute == "so4"),
                  aes(x = z_relh_median,

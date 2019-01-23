@@ -13,7 +13,6 @@ library(tidyverse)
 library(broom)
 library(lubridate)
 
-
 # Load raw elevation data
 elev <- read.csv("valpts_detrend_r.csv")
 elev$X <- NULL

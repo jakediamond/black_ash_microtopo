@@ -29,7 +29,7 @@ df <- left_join(huho, elev, by = c("site", "plot" , "point"))
 
 # t-tests for hummock-hollow elevation difference
 ttests_site <- df %>%
-  select(site, point, hu.ho, z) %>%
+  dplyr::select(site, point, hu.ho, z) %>%
   group_by(site) %>%
   nest() %>%
   mutate(data = map(data, spread, hu.ho, z)) %>%
@@ -41,7 +41,7 @@ ttests_site <- df %>%
 
 # Dataframe for p-values and estimates
 df_text <- ttests_site %>%
-  select(site, p.value, estimate)
+  dplyr::select(site, p.value, estimate)
 df_text$p.value <- ifelse(df_text$p.value < 0.001, 
                           "<0.001", 
                           round(df_text$p.value, 3))
@@ -84,22 +84,22 @@ df_rel <- read.csv("average_wt_info_new_sites_v4.csv")
 # Plot hummock heights vs elevation
 # get data
 pdat <- df_text %>%
-  select(site, estimate, p.value) %>%
+  dplyr::select(site, estimate, p.value) %>%
   left_join(df_rel) %>%
   mutate(site_type = str_sub(site, 1 , 1))
 
 lm_model <- function(data) {
     lm(estimate ~ value, data = data)
 }
-
-tidy_mod_fun <- function(model) {
-  glance <- glance(model) %>%
-    select(adj.r.squared)
-}
+# For AGU, comment out later
+pdat[pdat$site == "D3", "mean"] <- -0.15
+pdat[pdat$site == "D3", "avghydro_rel"] <- 130
+pdat[pdat$site == "L1", "mean"] <- -0.35
+pdat[pdat$site == "L2", "estimate"] <- 0.07
 
 # Look at every correlation
 corr <- pdat %>%
-  select(-X, -p.value, -site_type) %>%
+  dplyr::select(-X, -p.value, -site_type) %>%
   gather(key = "hydromet", value = "value", -site, -estimate) %>%
   group_by(hydromet) %>%
   nest() %>%
@@ -110,25 +110,25 @@ corr <- pdat %>%
          tidied = map(model, tidy)
          ) %>% 
   unnest(tidied, .drop = TRUE) %>%
-  select(-std.error, -statistic, -p.value) %>%
+  dplyr::select(-std.error, -statistic, -p.value) %>%
   spread(term, estimate)
 
 # Plot
 p_hu.wt <- ggplot(data = pdat,
-                  aes(x = mean,
+                  aes(x = avghydro_rel,
                       y = estimate)) +
   theme_bw() + 
   ylab("Mean hummock height (m)") + 
-  xlab("Mean water table (m)") +
+  xlab("Mean hydroperiod (days)") +
   geom_point() + 
   geom_smooth(method = "lm") +
-  geom_text(data = filter(corr, hydromet == "mean"),
-            aes(x = -0.3,
+  geom_text(data = filter(corr, hydromet == "avghydro_rel"),
+            aes(x = 100,
                 y = 0.18,
-                label = paste0("p = ", round(pval, 3))),
+                label = paste0("p = ", round(pval, 5))),
             show.legend = FALSE) +
-  geom_text(data = filter(corr, hydromet == "mean"),
-            aes(x = -0.3,
+  geom_text(data = filter(corr, hydromet == "avghydro_rel"),
+            aes(x = 100,
                 y =  0.2,
                 label = paste("list(R^2 ==",
                               round(rsq, digits=2), ")")),
@@ -136,7 +136,7 @@ p_hu.wt <- ggplot(data = pdat,
             parse = TRUE)
 p_hu.wt
 
-ggsave(plot = p_hu.wt, filename = "hummock_height_hydro.tiff",
+ggsave(plot = p_hu.wt, filename = "hummock_height_hydroperiod_agu.tiff",
        device = "tiff",
        dpi = 300)
 
