@@ -13,8 +13,8 @@ library(raster)
 library(tidyverse)
 
 # Get all filenames of .tif raster files for xyz data of sites
-filenames <- paste("Lidar/Rasters/", 
-                   list.files("Lidar/Rasters"), 
+filenames <- paste("Lidar/Rasters_density_filtered/", 
+                   list.files("Lidar/Rasters_density_filtered"), 
                    sep = "")
 
 # Load raw elevation data of measurement points
@@ -24,6 +24,21 @@ elev$site <- toupper(elev$site)
 elev[elev$site == "B1", "site"] <- "L1"
 elev[elev$site == "B3", "site"] <- "L2"
 elev[elev$site == "B6", "site"] <- "L3"
+
+# Load raw elevation data of delineated hummocks
+hums <- read.csv("Lidar/hummock_stats_ext6.csv")
+hums$X <- NULL
+hums <- hums %>%
+  mutate(site = str_sub(id, 1, 2)) %>%
+  dplyr::rename(x = centroid_x,
+                y = centroid_y,
+                z = zmax_raw)
+hums[hums$site == "B1", "site"] <- "L1"
+hums[hums$site == "B3", "site"] <- "L2"
+hums[hums$site == "B6", "site"] <- "L3"
+
+# Combine data
+elev <- bind_rows(elev, hums)
 
 # Loop through every site and detrend, save results as raster, and also 
 # append detrended data to an elevation datatable associated with measured points.
@@ -45,43 +60,67 @@ for (i in 1:length(filenames)){
   colnames(xyz)[3] <- "z"
   
   # Fit a linear detrend
-  # fit.linear <- lm(z ~ x + y, data = xyz)
+  fit_linear <- lm(z ~ x + y, data = xyz)
   
   # Fit a quadratic detrend
-  fit.quad <- lm(z ~ poly(x, y, 
+  fit_quad <- lm(z ~ poly(x, y, 
                           degree = 2),
                  data = xyz)
   
   # Get residuals. These are the corrections to raw elevations
-  # resid.linear <- fit.linear$residuals
-  resid.quad <- fit.quad$residuals
+  resid_linear <- fit_linear$residuals
+  resid_quad <- fit_quad$residuals
   
   # Recreate the dataframe with coordinates and residuals
-  # xyz$resid <- resid.linear
-  xyz$resid <- resid.quad
+  xyz$resid_lin <- resid_linear
+  xyz$resid_quad <- resid_quad
   # Remove data for less memory
   # rm(resid.linear)
-  rm(resid.quad)
+  rm(resid_quad, resid_linear)
   
   # convert back to rasterlayer
-  # Rasterize based on original raster extent, possibly used for spatial analysis
+  # Rasterize based on original raster extent, 
+  # possibly used for spatial analysis
   # Only need to do this the first time running
-  # r.detrend <- rasterize(xyz[, 1:2], r, xyz[, 4], fun = mean)
-  # writeRaster(r.detrend,
-  #             paste0(s, "_1cm_detrend.tif"),
-  #             options = c('TFW = YES')
-  # )
+  r_detrend_lin <- rasterize(xyz[, 1:2], 
+                             r, 
+                             xyz$resid_lin, 
+                             fun = mean)
+  names(r_detrend_lin) <- "z"
+  print(paste("Writing detrended rasters for site", s))
+  # Write the detrended raster to disc
+  writeRaster(r_detrend_lin,
+              filename = paste0(s, 
+                                "_all_1cm_linear_detrend.tif"),
+              format = "GTiff",
+              datatype = "FLT8S",
+              options = c("COMPRESS=NONE",
+                          'TFW = YES'),
+              overwrite = TRUE
+              )
+  # Same for quadratic detrend data
+  r_detrend_quad <- rasterize(xyz[, 1:2], r, 
+                              xyz$resid_quad, fun = mean)
+  # Write the detrended raster to disc
+  writeRaster(r_detrend_quad,
+              filename = paste0(s, "_all_1cm_quad_detrend.tif"),
+              format = "GTiff",
+              datatype = "FLT8S",
+              options = c("COMPRESS=NONE",
+                          'TFW = YES'),
+              overwrite = TRUE
+              )
   # Remove data for less memory
-  rm(xyz, r.detrend, r)
+  rm(xyz, r_detrend_lin, r_detrend_quad, r)
   # Calculate detrended data
   detrended <- dplyr::filter(elev,
                              site == s) %>%
     dplyr::select(x, y) %>%
-  # mutate(z_mod = predict(fit.linear, newdata = .)) %>%
-    mutate(z_mod = predict(fit.quad, newdata = .)) %>%
-  # inner_join(elev, by = c("x", "y"))
+    mutate(z_mod_lin = predict(fit_quad, newdata = .),
+           z_mod_quad = predict(fit_linear, newdata = .)) %>%
     inner_join(elev, by = c("x", "y"))
-
+  rm(fit_linear, fit_quad)
+  print(paste("Writing detrended elevation points for site", s))
   if(i == 1){
     result <- detrended
   } else {
@@ -89,4 +128,4 @@ for (i in 1:length(filenames)){
   }
 }
 # write.csv(result, "valpts_detrend_r.csv")
-write.csv(result, "valpts_detrend_quad_r.csv")
+write.csv(result, "hummocks_and_valpts_detrend_all_r.csv")

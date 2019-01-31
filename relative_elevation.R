@@ -13,53 +13,40 @@ library(tidyverse)
 library(broom)
 library(lubridate)
 
-# Load raw elevation data
+# Load raw elevation data for measured points
 # elev <- read.csv("valpts_detrend_r.csv")
-elev <- read.csv("valpts_detrend_quad_r.csv")
-elev$X <- NULL
-
-# Calculate detrended elevations
-# Need to account for the fact that points are on 1.2m stakes
-elev <- elev %>%
-  dplyr::filter(point != "well") %>%
-  mutate(z = z - 1.2,
-         z_d = z - z_mod) %>%
-  full_join(., dplyr::filter(elev, point == "well")) %>%
-  mutate(z_d = ifelse(point == "well",
-                      z - z_mod,
-                      z_d))
-
-# Get all elevation data relative to each site's well
-elev <- elev %>%
-  dplyr::filter(point == "well") %>%
-  transmute(z_well = z, 
-            z_well.d = z_d,
-            site = site) %>%
-  right_join(elev) %>%
-  mutate(z_rel = z - z_well,
-         z_rel.d = z_d - z_well.d)
-
-# Load hydrology data
-hydro <- read.csv("HydroData/average_wt_info_new_sites_v2.csv")
+elev <- read.csv("hummocks_and_valpts_detrend_all_r.csv") %>%
+  dplyr::select(-X, -xmean, -xmin, -xmax, -ymean, -ymin, -ymax,
+                -zmean_raw, -zmaxn_raw, -zminn_raw, -zmeann_raw,
+                -area, -zminn)
 
 # Load well height data
 wells <- read.csv("HydroData/well_ht_aboveground.csv")
 
-# Change hydrodata to be relative to well top, not ground surface (meters)
-hydro_well <- hydro %>%
-  left_join(wells) %>%
-  transmute(mean = mean - ag_ht.cm / 100,
-            median = median - ag_ht.cm / 100,
-            quant_80 = quant_80 - ag_ht.cm / 100,
-            quant_20 = quant_20 - ag_ht.cm / 100,
-            site = site) %>%
-  na.omit()
+# Load hydrology data
+hydro <- read.csv("HydroData/average_wt_info_new_sites_v4.csv") %>%
+  dplyr::select(-X, -(8:14))
 
-# Calculate relative elevation of points to average water table
-elev_rel <- elev %>%
-  left_join(hydro_well)
+# Need to first account for the fact that points 
+# are on 1.2m stakes, and also subtract well heights from wells to get
+# ground elevation at those 
+elev <- elev %>%
+  dplyr::filter(point != "well") %>%
+  mutate(z = z - 1.2) %>%
+  full_join(., dplyr::filter(elev, point == "well" | 
+                               is.na(point))) %>%
+  dplyr::filter(point == "well") %>%
+  left_join(wells) %>%
+  mutate(z = z - ag_ht.cm / 100) %>%
+  full_join(., dplyr::filter(elev, point != "well" | 
+                               is.na(point)))
+
+# Change hydrodata to be relative to z coordinates of the well at 
+# ground surface (meters)
+elev_rel <- hydro %>%
+  right_join(elev)
 
 # Save data
 # write.csv(elev_rel, "relative_elevations.csv")
-write.csv(elev_rel, "relative_elevations_quad.csv")
-
+# write.csv(elev_rel, "relative_elevations_quad.csv")
+write.csv(elev_rel, "relative_elevations_all.csv")

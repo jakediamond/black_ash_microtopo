@@ -46,11 +46,13 @@ div_fun <- function(data) {
   badcols <- c("site", "hu.ho", "point")
   mat <- data %>%
     ungroup() %>%
-    select(-one_of(badcols))
+    dplyr::select(-one_of(badcols))
   shann <- diversity(mat)
   simp <- diversity(mat, "simpson")
   rich <- sum(mat > 0)
-  x <- data.frame(shannon = shann, simpson = simp, richness = rich)
+  x <- data.frame(shannon = shann, 
+                  simpson = simp, 
+                  richness = rich)
   return(x)
 }
 
@@ -65,14 +67,16 @@ div_point <- df_div %>%
   left_join(df %>% 
               dplyr::select(site, point, depth) %>%
               unique()) %>%
-  left_join(elev, by = c("site", "point")) %>%
+  left_join(elev3, by = c("site", "point")) %>%
   ungroup()
 
 div_point$depth2 <- as.numeric(as.character(div_point$depth))
 div_point$edge <- ifelse(is.na(div_point$edge), 0, 1)
 div_point$log <- ifelse(is.na(div_point$log), 0, 1)
 div_point$notree <- ifelse(is.na(div_point$notree), 0, 1)
-div_point$intermediate <- ifelse(is.na(div_point$intermediate), 0, 1)
+div_point$intermediate <- ifelse(is.na(div_point$intermediate), 
+                                 0, 
+                                 1)
 
 # Model
 lm_fun <- function(df) {
@@ -85,12 +89,14 @@ lms <- div_point %>%
   nest() %>%
   mutate(model = map(data, lm_fun)) %>%
   mutate(
-    adj.r.squared = map_dbl(model, ~ signif(summary(.)$adj.r.squared, 3)),
+    adj.r.squared = map_dbl(model, 
+                            ~ signif(summary(.)$adj.r.squared, 
+                                     3)),
     intercept = map_dbl(model, ~ signif(.$coef[[1]], 3)),
     slope = map_dbl(model, ~ signif(.$coef[[2]], 3)),
     pvalue = map_dbl(model, ~ signif(summary(.)$coef[2, 4], 3)) 
     ) %>%
-  select(-data, -model)
+  dplyr::select(-data, -model)
 
 colnames(lms) <- c("site", "rsq", "b", "m", "pval")
   
@@ -266,31 +272,109 @@ ggsave("moss_richness.png", plot = moss2)
 
 
 
-
+# NMDS Analysis -----------------------------------------------------------
 # Get community matrix with sites-hu.ho as index
 df_nmds <- df %>%
-  filter(moss != 1) %>%
+  dplyr::select(-(10:14)) %>%
+  # dplyr::filter(moss != 1) %>%
+  left_join(elev3 %>% 
+              dplyr::select(site, point, hu.ho, intermediate),
+            by = c("site", "point")) %>%
+  mutate(hu.ho = ifelse(!is.na(intermediate),
+                        "lawn",
+                        hu.ho)) %>%
   group_by(site, hu.ho, species) %>%
   summarize(sum = sum(number)) %>%
   spread(key = species, 
          value = sum, 
-         fill = 0)
+         fill = 0) %>%
+  dplyr::rename_all(funs(make.names(.))) %>%
+  dplyr::select(-3, -(86:96), -58, -70, -70, -(102:113),-(39:55))
+df_nmds<- df_nmds[, colSums(df_nmds != 0) > 0]
 
-rownames(df_nmds) <- paste(df_nmds$hu.ho, df_nmds$site, sep = ".")
+groups <- data.frame(site = df_nmds$site,
+                     hu_ho = df_nmds$hu.ho)
+
+rownames(df_nmds) <- paste(df_nmds$site, 
+                           df_nmds$hu.ho, 
+                           sep = ".")
 df_nmds$site <- NULL
 df_nmds$hu.ho <- NULL
-df_nmds2 <- df_nmds[order(row.names(df_nmds)), ]
 
-example_NMDS <- metaMDS(df_nmds2, # Our community-by-species matrix
-                     k=3)
-stressplot(example_NMDS)
-plot(example_NMDS)
-ordiplot(example_NMDS,type="n")
-orditorp(example_NMDS,display="species",col="red",air=0.01)
-orditorp(example_NMDS,display="sites",cex=1.25,air=0.01)
-huho <- c(rep("Hollow",10),rep("Hummock",10))
-ordiplot(example_NMDS,type="n")
-ordihull(example_NMDS, groups=huho, draw = "polygon", col="grey90", label=F)
-orditorp(example_NMDS,display="species",col="red",air=0.01)
-orditorp(example_NMDS,display="sites",col=c(rep("green",5),rep("blue",5)),
+# Run NMDS
+nmds <- metaMDS(df_nmds,
+                k = 4,
+                distance = "bray",
+                trymax = 50)
+
+stressplot(nmds)
+ordiplot(nmds,type="n")
+ordihull(nmds, groups=groups$hu_ho, draw = "polygon", col="grey90", label=F)
+orditorp(nmds,display="species",col="red",air=0.01)
+orditorp(nmds,display="sites",col=c(rep("green",8),rep("blue",9)),
          air=0.01,cex=1.25)
+
+
+# Spread of points
+plot.new()
+ordiellipse(nmds, groups =groups$hu_ho,
+                   kind = "se")
+dev.off()
+#Reference: http://stackoverflow.com/questions/13794419/plotting-ordiellipse-function-from-vegan-package-onto-nmds-plot-created-in-ggplo
+#Data frame df_ell contains values to show ellipses. It is calculated with function veganCovEllipse which is hidden in vegan package. This function is applied to each level of NMDS (group) and it uses also function cov.wt to calculate covariance matrix.
+
+veganCovEllipse <- function (cov, center = c(0, 0), scale = 1, npoints = 100) 
+{
+  theta <- (0:npoints) * 2 * pi/npoints
+  Circle <- cbind(cos(theta), sin(theta))
+  t(center + scale * t(Circle %*% chol(cov)))
+}
+#Generate ellipse points
+df_ell <- data.frame()
+for(g in levels(groups$hu_ho)){
+  if(g!="" && (g %in% names(ord))){
+    df_ell <- rbind(df_ell, 
+                    cbind(as.data.frame(with(groups[groups$hu_ho == g,],
+                                             veganCovEllipse(ord[[g]]$cov,
+                                                             ord[[g]]$center,
+                                                             ord[[g]]$scale))), 
+                          hu_ho=g))
+  }
+}
+NMDS.mean=aggregate(nmds[,1:2],list(group=groups$hu_ho),mean)
+
+# > NMDS.mean
+# group          x          y
+# 1     T -0.2774564 -0.2958445
+# 2     V  0.1547353  0.1649902
+
+#Now do the actual plotting
+library(ggplot2)
+
+shape_values<-seq(1,11)
+
+p<-ggplot(data=nmds,aes(x,y,colour=hu_ho))
+p<-p+ annotate("text",x=NMDS.mean$x,y=NMDS.mean$y,label=NMDS.mean$group,size=4)
+p<-p+ geom_path(data=df_ell, aes(x=NMDS1, y=NMDS2), size=1, linetype=2)
+p<-p+geom_point(aes(shape=Depth))+scale_shape_manual(values=shape_values)+theme_bw() 
+pdf("NMDS.pdf")
+print(p)
+dev.off()
+
+
+
+
+
+
+# Test for NMDS
+# dissimilarities
+dis_df <- df_div %>%
+  ungroup() %>%
+  dplyr::filter(site == "D1") %>%
+  dplyr::select(-(1:4))
+dis_df <- dis_df[, colSums(dis_df != 0) > 0]
+rankindex(scale(dis_df), dis_df)
+envfit()
+
+dis <- vegdist(dis_df)
+mds0 <- isoMDS(dis)

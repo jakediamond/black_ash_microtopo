@@ -16,9 +16,11 @@ library(MASS)
 library(gstat)
 
 # Get all filenames
-filenames <- paste("Lidar/detrended/", 
-                   list.files("Lidar/detrended"), 
+# D2 needs to be detrended (quad)
+filenames <- paste("Lidar/detrended_quad/", 
+                   list.files("Lidar/detrended_quad"), 
                    sep = "")
+# D1, D3, D4 does not need to be detrended
 filenames <- paste("Lidar/Rasters/", 
                    list.files("Lidar/Rasters"), 
                    sep = "")
@@ -39,20 +41,23 @@ for (i in 1:length(filenames)){
   xyz <- rasterToPoints(r)
   xyz <- as.data.frame(xyz)
   colnames(xyz)[3] <- "z"
-  # Only want data in the center of the site; edges are not representative
-  xyz <- subset(xyz, between(xyz$x, 
-                             quantile(xyz$x, 0.3), 
-                             quantile(xyz$x, 0.7)))
-  xyz <- subset(xyz, between(xyz$y, 
-                             quantile(xyz$y, 0.3), 
-                             quantile(xyz$y, 0.7)))
+  
+  # Get rid of data outliers
+  xyz <- dplyr::filter(xyz, z < quantile(z, 0.99)
+                      # , z > quantile(z, 0.001)
+                       )
+  
+  xyz$z <- xyz$z - quantile(xyz$z, 0.001)
+
+  # Turn data in to a spatial dataframe for analysis
   xy <- xyz[, c(1, 2)]
   spdf <- SpatialPointsDataFrame(coords = xy, 
                                  data = xyz,
                                  proj4string = 
                                    CRS("+proj=utm +zone=15 +datum=WGS84"))
+  hist(spdf$z, breaks = 1000)
   spSample <- spdf[sample(1:length(spdf), 100000), ]
-  
+  hist(spSample$z, breaks = 1000)
   # Remove data for memory
   rm(r)
   
@@ -60,18 +65,38 @@ for (i in 1:length(filenames)){
   mixmdl <- normalmixEM(na.omit(spSample$z),
                         k = 2
                         )
+  summary(mixmdl)
   # Get a fit for a unimodal normal distribution
   unimdl <- fitdistr(spSample$z, "normal")
   para <- unimdl$estimate
+  
+  normal.lik1<-function(theta,y){
+    mu<-theta[1]
+    sigma2<-theta[2]
+    n<-nrow(y)
+    logl<- -.5*n*log(2*pi) -.5*n*log(sigma2) -
+      (1/(2*sigma2))*sum((y-mu)**2)
+    return(-logl)
+  }
+  thet = c(0.2249, 0.08589^2)
+  
+  normal.lik1(thet, spSample$z)
   # Get log-likelihoods for both uni and bimodal distributions
   uni <- unimdl$loglik
   bi <- mixmdl$loglik
-  # Calculate the deviance between them
-  D <- bi - uni
-  # Determinen  if significantly different
-  p <- 1 - pchisq(D, df = 3)
+  # Calculate the loglikehood difference between them
+  D <- 2 * (uni/bi)
+  D <- 2*log(bi) - 2*log(uni)
+  # Determine  if significantly different
+  p <- 1 - pchisq(D, df = 2)
   # Remove some data for memory
   rm(spdf, spSample)
+  
+  library(mclust)
+  # hist(spSample$z, breaks = 1000)
+  x <- densityMclust(spSample$z)
+  plot(x, what = "BIC")
+  plot(x, what = "density", data = spSample$z, breaks = 30)
   
   # Plot bimodal if p <0.01, else unimodal
   if(p < 0.01){
