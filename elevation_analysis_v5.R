@@ -14,14 +14,15 @@ setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 library(tidyverse)
 library(broom)
 
-# Load data
-elev <- read.csv("relative_elevations_all.csv",
+# Load cleaned delineated hummock elevation data
+elev <- read.csv("relative_elevations_all_v6.csv",
                  stringsAsFactors = FALSE)
 elev$X <- NULL
+# Load depth to confining layer data
 conf <- read.csv("Soils/depth_to_confining.csv",
                stringsAsFactors = FALSE) %>%
   fill(plot)
-
+# Load hummock hollow metadata
 huho <- read.csv("hu.ho.csv", 
                  stringsAsFactors = FALSE)
 
@@ -182,29 +183,51 @@ ggsave(plot = p_huho,
        device = "tiff")
 
 # Site level hummock height versus water table ----------------------------
-# Get hydro data relative to z-coords
-elev <- elev %>%
+# Use the z coord at the well as our datum
+elev2 <- elev %>%
   dplyr::filter(point == "well") %>%
-  dplyr::select(mean, median, quant_80, quant_20, z, site) %>%
-  transmute(mean = mean + z,
-         median = median + z,
-         quant_80 = quant_80 + z,
-         quant_20 = quant_20 + z,
-         site = site) %>%
-  right_join(dplyr::select(elev, -mean, -median, -quant_80, -quant_20))
+  transmute(site = site,
+            z_well = z) %>%
+  right_join(elev) %>%
+  mutate(z = z - z_well,
+         zmin = zmin - z_well,
+         zmax = zmax - z_well)
+
+ggplot(data = dplyr::filter(elev2, area > 0.1),
+       aes(x = zmaxn))+
+  geom_histogram()+
+  facet_wrap(~site)
+
+ggplot(data = dplyr::filter(elev2, point == "well"),
+       aes(x = site,
+           y = mean))+
+  geom_col()
+
+# Define lowland sites
+lsites <- c("L1", "L2", "L3")
+
+# Lowland sites are artifically high because the highest point
+# on each hummock is actually a tree trunk...need to fix
+elev2 <- elev2 %>%
+  mutate(z = ifelse(site %in% lsites,
+                    z20,
+                    z),
+         zmax = ifelse(site %in% lsites,
+                       z80,
+                       z))
 
 # Find average hummock height of delineated hummocks
-# Want to subset hummocks that are between 0.5 and 3 m2 to 
+# Want to subset hummocks that are > 0.1 m2 to 
 # remove obvious outliers
-hu_hts_avg <- elev %>%
-  dplyr::filter(is.na(point),
-                between(area_poly, 0.1, 3)) %>%
-  dplyr::select(site, z, zmin, zmaxn, zmeann
-                ) %>%
+hu_hts_avg <- elev2 %>%
+  dplyr::filter(is.na(point), area > 0.1) %>%
+  dplyr::select(site, z, zmin, zmax, zmaxn, zmeann, z80n) %>%
   transmute(site = site,
-            ht_abs = z,
+            ht_abs_mean = z,
+            ht_abs = zmax,
             ht_rel = zmaxn,
-            ht_mean = zmeann
+            ht_rel_mean = zmeann,
+            ht_rel_80 = z80n
             ) %>%
   gather(key = "z_type",
          value = "value",
@@ -212,7 +235,8 @@ hu_hts_avg <- elev %>%
   group_by(site, z_type) %>%
   summarize(avg_ht = mean(value),
             sd_ht = sd(value)) %>%
-  left_join(dplyr::select(elev, site, mean, median, quant_80, variation) %>%
+  left_join(dplyr::select(elev, site, mean,
+                          median, quant_80, variation) %>%
               distinct())
 # Linear model
 lm_model_hums <- function(data) {
@@ -222,6 +246,7 @@ lm_model_hums <- function(data) {
 # Look at all correlations of hydrometrics to hummock site level averages
 corr_hts <- hu_hts_avg %>%
   dplyr::select(-sd_ht) %>%
+  # dplyr::filter(!(site %in% c("L1", "L2", "L3", "D2", "D4"))) %>%
   gather(key = "hydromet", value = "value", 
          -site, -avg_ht, -z_type) %>%
   group_by(hydromet, z_type) %>%
@@ -243,70 +268,72 @@ corr_hts$pval_text = ifelse(corr_hts$pval < 0.001,
 
 # Levels for facet headings
 facets <- c(
+  `ht_abs_mean` = "Site level hummock height",
   `ht_abs` = "Site level datum",
-  `ht_mean` = "Mean elevation",
+  `ht_mean` = "Local mean hummock height",
   `ht_rel` = "Local hollow datum"
 )
 
 # Plot average hummock height (raw z coord) versus average water 
 # table (raw z coord)
-avg_hu_p <- ggplot(data = dplyr::filter(hu_hts_avg,
-                                        z_type %in% c("ht_abs",
-                                                      "ht_rel")),
-                   aes(x = median,
+avg_hu_p <- ggplot(data = hu_hts_avg,
+                     # dplyr::filter(hu_hts_avg,
+                     #                    !(site %in% c("L1", "L2", "L3", "D2", "D4"))),
+                   aes(x = mean,
                        y = avg_ht,
                        color = z_type)) +
   geom_point() + 
-  geom_smooth(data = dplyr::filter(hu_hts_avg,
-                                   z_type %in% c("ht_abs")),
-              method = "lm",
-              se = FALSE,
-              show.legend = FALSE) +
-  geom_errorbar(aes(x = median,
+  # geom_smooth(data = dplyr::filter(hu_hts_avg,
+  #                                  z_type %in% 
+  #                                    c("ht_mean")),
+  #             method = "lm",
+  #             se = FALSE,
+  #             show.legend = FALSE) +
+  geom_errorbar(aes(x = mean,
                     ymin = avg_ht - sd_ht,
                     ymax = avg_ht + sd_ht),
                 show.legend = FALSE) + 
   geom_errorbarh(aes(y = avg_ht,
-                     xmin = median - sqrt(variation),
-                     xmax = median + sqrt(variation)),
+                     xmin = mean - sqrt(variation),
+                     xmax = mean + sqrt(variation)),
                  show.legend = FALSE) + 
   theme_bw() +
-  scale_color_manual(name = "Height metric",
-                     breaks = c("ht_abs", "ht_rel"),
-                     labels = c("Elevation", "Relative elevation"),
-                     values = c("darkblue", "lightblue")) +
+  # scale_color_manual(name = "Height metric",
+  #                    breaks = c("ht_abs", "ht_rel"),
+  #                    labels = c("Elevation", "Relative elevation"),
+  #                    values = c("darkblue", "lightblue")) +
   theme(legend.position = "none",
         legend.background = element_rect(fill = "lightgray",
                                          size = 0.5, 
                                          linetype = "solid", 
                                          colour ="darkgrey")) +
-  geom_text(data = dplyr::filter(corr_hts,
-                                 z_type == "ht_abs",
-                                 hydromet == "median"),
-            aes(x = 0.2,
-                y = 0,
-                label = paste0("y = ", round(value, 2), "x",
-                               "+", round(`(Intercept)`, 2))),
-            show.legend = FALSE) +
-  geom_text(data = dplyr::filter(corr_hts,
-                                 z_type == "ht_abs",
-                                 hydromet == "median"),
-            aes(x = 0.2,
-                y = -0.11,
-                label = paste0("p = ", pval_text)),
-            show.legend = FALSE) +
-  geom_text(data = dplyr::filter(corr_hts,
-                                 z_type == "ht_abs",
-                                 hydromet == "median"),
-            aes(x = 0.2,
-                y = -0.05,
-                label = paste("list(R^2 ==",
-                              round(rsq, digits=2), ")")),
-            show.legend = FALSE,
-            parse = TRUE) +
-  xlab("Median daily water table (m)") + 
+  # geom_text(data = dplyr::filter(corr_hts,
+  #                                z_type == "ht_mean",
+  #                                hydromet == "mean"),
+  #           aes(x = 0.2,
+  #               y = 0,
+  #               label = paste0("y = ", round(value, 2), "x",
+  #                              "+", round(`(Intercept)`, 2))),
+  #           show.legend = FALSE) +
+  # geom_text(data = dplyr::filter(corr_hts,
+  #                                z_type == "ht_mean",
+  #                                hydromet == "mean"),
+  #           aes(x = 0.2,
+  #               y = -0.11,
+  #               label = paste0("p = ", pval_text)),
+  #           show.legend = FALSE) +
+  # geom_text(data = dplyr::filter(corr_hts,
+  #                                z_type == "ht_mean",
+  #                                hydromet == "mean"),
+  #           aes(x = 0.2,
+  #               y = -0.05,
+  #               label = paste("list(R^2 ==",
+  #                             round(rsq, digits=2), ")")),
+  #           show.legend = FALSE,
+  #           parse = TRUE) +
+  xlab("Mean daily water table (m)") + 
   ylab("Hummock height (m)") +
-  facet_wrap(~z_type, labeller = as_labeller(facets))
+  facet_wrap(~z_type, scales = "free")#, labeller = as_labeller(facets))
 avg_hu_p
 
 ggsave(plot = avg_hu_p,
@@ -314,16 +341,36 @@ ggsave(plot = avg_hu_p,
        device = "tiff",
        dpi = 300)
 # Individual hummocks vs water table analysis ----------------------------------------
-# # Get hydro data relative to detrended z-coords
-elev_det <- elev %>%
+# Need to determine which sites need which kind of detrending
+# # Note: T1 is riddled with hummocks, not looking bimodal
+# D2, L3 maybe needs to be detrended (quad)
+# D1, L2 (maybe), T2, T3 (maybe) needs to be detrended (linear)
+# D3, D4, L3 does not need to be detrended
+# 
+# 
+
+# Use the z coord at the well as our datum
+elev2 <- elev %>%
   dplyr::filter(point == "well") %>%
-  dplyr::select(mean, median, quant_80, quant_20, z, z_mod_quad, site) %>%
-  transmute(mean = mean - z + z_mod_quad,
-            median = median - z + z_mod_quad,
-            quant_80 = quant_80 - z + z_mod_quad,
-            quant_20 = quant_20 - z + z_mod_quad,
+  transmute(site = site,
+            z_well = z) %>%
+  right_join(elev) %>%
+  mutate(z = z - z_well,
+         zmin = zmin - z_well,
+         zmax = zmax - z_well)
+
+# Get hydro data relative to detrended z-coords
+elev_det <- elev2 %>%
+  dplyr::filter(point == "well") %>%
+  dplyr::select(mean, median, quant_80, 
+                quant_20, z, z_mod_quad, site) %>%
+  transmute(mean = mean - z_mod_quad,
+            median = median - z_mod_quad,
+            quant_80 = quant_80 - z_mod_quad,
+            quant_20 = quant_20 - z_mod_quad,
             site = site) %>%
-  right_join(dplyr::select(elev, -mean, -median, -quant_80, -quant_20))
+  right_join(dplyr::select(elev, -mean, -median, 
+                           -quant_80, -quant_20))
 
 # First, for each site, want to plot individual
 # hummock height
@@ -331,8 +378,8 @@ elev_det <- elev %>%
 # Do this assuming that the linear detrended surface is the hollow
 df_hu <- elev_det %>%
   dplyr::filter(is.na(point),
-                between(area_poly, 0.2, 3)) %>%
-  mutate(dist_hydmedian = (zmin_raw - z_mod_quad)- median,
+                between(area, 0.1, 10)) %>%
+  mutate(dist_hydmedian = (zmin - z_mod_quad) - median,
          type = str_sub(site, 1, 1),
          number = str_sub(site, 2, 2))
 # Linear model for hummock heights as a function of distance from water table
@@ -360,7 +407,7 @@ lms_hts <- df_hu %>%
 # Plot this
 hums_p <- ggplot(data = df_hu,
                  aes(x = dist_hydmedian,
-                     y = zmeann,
+                     y = zmax,
                      color = number)) +
   geom_point() + 
   geom_smooth(method = "lm",

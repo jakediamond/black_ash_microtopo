@@ -18,13 +18,13 @@ library(lubridate)
 elev <- read.csv("hummocks_and_valpts_detrend_all_r.csv") %>%
   dplyr::select(-X, -xmean, -xmin, -xmax, -ymean, -ymin, -ymax,
                 -zmaxn_raw, -zminn_raw, -zmeann_raw,
-                -zminn)
+                -area, -zminn)
 
 # Load well height data
 wells <- read.csv("HydroData/well_ht_aboveground.csv")
 
 # Load hydrology data
-hydro <- read.csv("HydroData/average_wt_info_new_sites_v4.csv") %>%
+hydro <- read.csv("average_wt_info_new_sites_v5_same years.csv") %>%
   dplyr::select(-X, -(8:14))
 
 # Need to first account for the fact that points 
@@ -45,4 +45,4 @@ elev_rel <- hydro %>%
 # Save data
 # write.csv(elev_rel, "relative_elevations.csv")
 # write.csv(elev_rel, "relative_elevations_quad.csv")
-write.csv(elev_rel, "relative_elevations_all.csv")
+write.csv(elev_rel, "relative_elevations_all_v2.csv")

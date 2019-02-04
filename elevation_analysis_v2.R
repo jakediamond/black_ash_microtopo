@@ -251,66 +251,64 @@ facets <- c(
 # Plot average hummock height (raw z coord) versus average water 
 # table (raw z coord)
 avg_hu_p <- ggplot(data = dplyr::filter(hu_hts_avg,
-                                        z_type %in% c("ht_abs",
-                                                      "ht_rel")),
-                   aes(x = median,
-                       y = avg_ht,
-                       color = z_type)) +
+                                        z_type %in% c("ht_mean")),
+                   aes(x = mean,
+                       y = avg_ht)) +
   geom_point() + 
   geom_smooth(data = dplyr::filter(hu_hts_avg,
-                                   z_type %in% c("ht_abs")),
+                                   z_type %in% c("ht_mean")),
               method = "lm",
               se = FALSE,
               show.legend = FALSE) +
-  geom_errorbar(aes(x = median,
+  geom_errorbar(aes(x = mean,
                     ymin = avg_ht - sd_ht,
                     ymax = avg_ht + sd_ht),
                 show.legend = FALSE) + 
   geom_errorbarh(aes(y = avg_ht,
-                     xmin = median - sqrt(variation),
-                     xmax = median + sqrt(variation)),
+                     xmin = mean - sqrt(variation),
+                     xmax = mean + sqrt(variation)),
                  show.legend = FALSE) + 
   theme_bw() +
-  scale_color_manual(name = "Height metric",
-                     breaks = c("ht_abs", "ht_rel"),
-                     labels = c("Elevation", "Relative elevation"),
-                     values = c("darkblue", "lightblue")) +
+  # scale_color_manual(name = "Height metric",
+  #                    breaks = c("ht_abs", "ht_rel"),
+  #                    labels = c("Elevation", "Relative elevation"),
+  #                    values = c("darkblue", "lightblue")) +
   theme(legend.position = "none",
         legend.background = element_rect(fill = "lightgray",
                                          size = 0.5, 
                                          linetype = "solid", 
                                          colour ="darkgrey")) +
-  geom_text(data = dplyr::filter(corr_hts,
-                                 z_type == "ht_abs",
-                                 hydromet == "median"),
-            aes(x = 0.2,
-                y = 0,
-                label = paste0("y = ", round(value, 2), "x",
-                               "+", round(`(Intercept)`, 2))),
-            show.legend = FALSE) +
-  geom_text(data = dplyr::filter(corr_hts,
-                                 z_type == "ht_abs",
-                                 hydromet == "median"),
-            aes(x = 0.2,
-                y = -0.11,
-                label = paste0("p = ", pval_text)),
-            show.legend = FALSE) +
-  geom_text(data = dplyr::filter(corr_hts,
-                                 z_type == "ht_abs",
-                                 hydromet == "median"),
-            aes(x = 0.2,
-                y = -0.05,
-                label = paste("list(R^2 ==",
-                              round(rsq, digits=2), ")")),
-            show.legend = FALSE,
-            parse = TRUE) +
-  xlab("Median daily water table (m)") + 
+  # geom_text(data = dplyr::filter(corr_hts,
+  #                                z_type == "ht_mean",
+  #                                hydromet == "mean"),
+  #           aes(x = 0.2,
+  #               y = 0,
+  #               label = paste0("y = ", round(value, 2), "x",
+  #                              "+", round(`(Intercept)`, 2))),
+  #           show.legend = FALSE) +
+  # geom_text(data = dplyr::filter(corr_hts,
+  #                                z_type == "ht_mean",
+  #                                hydromet == "mean"),
+  #           aes(x = 0.2,
+  #               y = -0.11,
+  #               label = paste0("p = ", pval_text)),
+  #           show.legend = FALSE) +
+  # geom_text(data = dplyr::filter(corr_hts,
+  #                                z_type == "ht_mean",
+  #                                hydromet == "mean"),
+  #           aes(x = 0.2,
+  #               y = -0.05,
+  #               label = paste("list(R^2 ==",
+  #                             round(rsq, digits=2), ")")),
+  #           show.legend = FALSE,
+  #           parse = TRUE) +
+  xlab("Mean daily water table (m)") + 
   ylab("Hummock height (m)") +
   facet_wrap(~z_type, labeller = as_labeller(facets))
 avg_hu_p
 
 ggsave(plot = avg_hu_p,
-       filename = "mean_hummock_ht_vs_water_table_v2.tiff",
+       filename = "mean_hummock_ht_vs_water_table_v3_no_wt_correction.tiff",
        device = "tiff",
        dpi = 300)
 # Individual hummocks vs water table analysis ----------------------------------------
@@ -329,7 +327,7 @@ elev_det <- elev %>%
 # hummock height
 # as a function of (base/hollow) distance from water table
 # Do this assuming that the linear detrended surface is the hollow
-df_hu <- elev_det %>%
+df_hu <- elev %>%
   dplyr::filter(is.na(point),
                 between(area_poly, 0.2, 3)) %>%
   mutate(dist_hydmedian = (zmin_raw - z_mod_quad)- median,

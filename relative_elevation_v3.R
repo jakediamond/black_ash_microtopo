@@ -15,21 +15,19 @@ library(lubridate)
 
 # Load raw elevation data for measured points
 # elev <- read.csv("valpts_detrend_r.csv")
-elev <- read.csv("hummocks_and_valpts_detrend_all_r.csv") %>%
-  dplyr::select(-X, -xmean, -xmin, -xmax, -ymean, -ymin, -ymax,
-                -zmaxn_raw, -zminn_raw, -zmeann_raw,
-                -zminn)
+elev <- read.csv("clean_hummocks_and_valpts_detrend.csv") %>%
+  dplyr::select(-X, -x, -xmin, -xmax, -y, -ymin, -ymax)
 
 # Load well height data
 wells <- read.csv("HydroData/well_ht_aboveground.csv")
 
 # Load hydrology data
-hydro <- read.csv("HydroData/average_wt_info_new_sites_v4.csv") %>%
+hydro <- read.csv("average_wt_info_new_sites_v5_same years.csv") %>%
   dplyr::select(-X, -(8:14))
 
 # Need to first account for the fact that points 
-# are on 1.2m stakes, and also subtract well heights from wells to get
-# ground elevation at those 
+# are on 1.2m stakes, and also subtract well heights 
+# from wells to get ground elevation at those 
 elev <- elev %>%
   dplyr::filter(!is.na(point)) %>%
   left_join(wells) %>%
@@ -45,4 +43,4 @@ elev_rel <- hydro %>%
 # Save data
 # write.csv(elev_rel, "relative_elevations.csv")
 # write.csv(elev_rel, "relative_elevations_quad.csv")
-write.csv(elev_rel, "relative_elevations_all.csv")
+write.csv(elev_rel, "relative_elevations_all_v6.csv")

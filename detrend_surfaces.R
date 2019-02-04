@@ -26,13 +26,13 @@ elev[elev$site == "B3", "site"] <- "L2"
 elev[elev$site == "B6", "site"] <- "L3"
 
 # Load raw elevation data of delineated hummocks
-hums <- read.csv("Lidar/hummock_stats_ext6.csv")
+hums <- read.csv("hummock_stats_clean.csv",
+                 stringsAsFactors = FALSE)
 hums$X <- NULL
 hums <- hums %>%
-  mutate(site = str_sub(id, 1, 2)) %>%
-  dplyr::rename(x = centroid_x,
-                y = centroid_y,
-                z = zmax_raw)
+  dplyr::rename(x = xmean,
+                y = ymean,
+                z = zmean)
 hums[hums$site == "B1", "site"] <- "L1"
 hums[hums$site == "B3", "site"] <- "L2"
 hums[hums$site == "B6", "site"] <- "L3"
@@ -82,34 +82,34 @@ for (i in 1:length(filenames)){
   # Rasterize based on original raster extent, 
   # possibly used for spatial analysis
   # Only need to do this the first time running
-  r_detrend_lin <- rasterize(xyz[, 1:2], 
-                             r, 
-                             xyz$resid_lin, 
-                             fun = mean)
-  names(r_detrend_lin) <- "z"
-  print(paste("Writing detrended rasters for site", s))
-  # Write the detrended raster to disc
-  writeRaster(r_detrend_lin,
-              filename = paste0(s, 
-                                "_all_1cm_linear_detrend.tif"),
-              format = "GTiff",
-              datatype = "FLT8S",
-              options = c("COMPRESS=NONE",
-                          'TFW = YES'),
-              overwrite = TRUE
-              )
-  # Same for quadratic detrend data
-  r_detrend_quad <- rasterize(xyz[, 1:2], r, 
-                              xyz$resid_quad, fun = mean)
-  # Write the detrended raster to disc
-  writeRaster(r_detrend_quad,
-              filename = paste0(s, "_all_1cm_quad_detrend.tif"),
-              format = "GTiff",
-              datatype = "FLT8S",
-              options = c("COMPRESS=NONE",
-                          'TFW = YES'),
-              overwrite = TRUE
-              )
+  # r_detrend_lin <- rasterize(xyz[, 1:2], 
+  #                            r, 
+  #                            xyz$resid_lin, 
+  #                            fun = mean)
+  # names(r_detrend_lin) <- "z"
+  # print(paste("Writing detrended rasters for site", s))
+  # # Write the detrended raster to disc
+  # writeRaster(r_detrend_lin,
+  #             filename = paste0(s, 
+  #                               "_all_1cm_linear_detrend.tif"),
+  #             format = "GTiff",
+  #             datatype = "FLT8S",
+  #             options = c("COMPRESS=NONE",
+  #                         'TFW = YES'),
+  #             overwrite = TRUE
+  #             )
+  # # Same for quadratic detrend data
+  # r_detrend_quad <- rasterize(xyz[, 1:2], r, 
+  #                             xyz$resid_quad, fun = mean)
+  # # Write the detrended raster to disc
+  # writeRaster(r_detrend_quad,
+  #             filename = paste0(s, "_all_1cm_quad_detrend.tif"),
+  #             format = "GTiff",
+  #             datatype = "FLT8S",
+  #             options = c("COMPRESS=NONE",
+  #                         'TFW = YES'),
+  #             overwrite = TRUE
+  #             )
   # Remove data for less memory
   rm(xyz, r_detrend_lin, r_detrend_quad, r)
   # Calculate detrended data
@@ -128,4 +128,4 @@ for (i in 1:length(filenames)){
   }
 }
 # write.csv(result, "valpts_detrend_r.csv")
-write.csv(result, "hummocks_and_valpts_detrend_all_r.csv")
+write.csv(result, "clean_hummocks_and_valpts_detrend.csv")
