@@ -18,18 +18,28 @@ library(broom)
 library(scales)
 library(sf)
 
-
 # Get hummock data (x, y, area, vol, perim)
 # df <- read.csv("Lidar/delineate_all_sites.csv")
 df <- read.csv("Lidar/hummock_stats_ext6.csv") %>%
   dplyr::select(id, site_area) %>%
   mutate(site = str_sub(id, 1, 2)) %>%
-  select(site, site_area) %>%
+  dplyr::select(site, site_area) %>%
   distinct() %>%
   right_join(read.csv("hummock_stats_clean.csv"))
 
 # Minimum area for hummocks to consider
 min_hum <- 0.1
+
+# Estimate how much additional surface area is provided by 
+# hummocks.
+df_sa <- df %>%
+  transmute(site = site,
+            site_area = site_area,
+            sa = z80n * perim_poly) %>%
+  group_by(site) %>%
+  summarize(site_area = mean(site_area),
+            sa = sum(sa),
+            sa_add = sa / site_area)
 
 # df_hums <- fread("Lidar/D1_hum_unnormalized_ext6_cleaned.txt")
 # colnames(df_hums) <- c("x", "y", "z", "id", "class")
@@ -161,92 +171,131 @@ plot(E)
 # Hummock distribution analysis -------------------------------------------
 # Get data in descending rank order
 df_h <- df %>%
-  dplyr::select(site, area, area_poly,
+  dplyr::select(site, area_poly,
                 vol, perim_poly) %>%
   gather(key = "measure.type", value = "measure",
          -site) %>%
   group_by(site, measure.type) %>%
-  mutate(rank = cume_dist(desc(measure)))
+  mutate(rank = cume_dist(desc(measure)),
+         type = str_sub(site, 1, 1))
 
 # Model for exponential estimate model
 e_mod <- function(data) {
-  lm(rank ~ exp(measure), data = data)
+  lm(log(rank) ~ measure, data = data)
 }
 
-# Fit exponential line to area, perim, vol
+# Fit exponential line to area, perim, vol, need to filter below 1 a bit
 mod <- df_h %>%
-  group_by(site, measure.type) %>%
+  group_by(site, measure.type, type) %>%
+  dplyr::filter(rank < 0.95) %>%
   nest() %>%
   mutate(model = map(data, e_mod),
+         glance_e = map(model, glance),
+         pval = map_dbl(glance_e, "p.value"),
          tidied = map(model, tidy)) %>% 
   unnest(tidied, .drop = TRUE) %>%
-  ungroup()
+  dplyr::select(-std.error, -statistic, -p.value) %>%
+  spread(term, estimate)
 
+write.csv(mod, "exponential_fits_rank.csv")
+
+# Get average fits across sites
+mod_sum <- df_h %>%
+  dplyr::filter(rank < 0.90,
+                type != "B") %>%
+  group_by(measure.type) %>%
+  nest() %>%
+  mutate(model = map(data, e_mod),
+         glance_e = map(model, glance),
+         pval = map_dbl(glance_e, "p.value"),
+         tidied = map(model, tidy)) %>% 
+  unnest(tidied, .drop = TRUE) %>%
+  dplyr::select(-std.error, -statistic, -p.value) %>%
+  spread(term, estimate) %>%
+  rename(int = `(Intercept)`,
+         coef = measure) %>%
+  mutate(x = c(10^-1, 10^-3, 10^-4.7),
+         y = 0.4)
+
+# refactor things for plotting
 df_h$measure.type <- factor(df_h$measure.type,
                             levels = c("perim_poly",
-                                       "area",
+                                       # "area",
                                        "area_poly",
                                        "vol"))
 levels(df_h$measure.type) <- c("Perimeter~(m)",
+                               # "Area~(m^{2})",
                                "Area~(m^{2})",
-                               "AreaP~(m^{2})",
                                "Volume~(m^{3})")
-# don't plot these sites
+# # don't plot these sites
 bad <- c("B1", "B3", "B6")
 
 # Plot
 p_rank <- ggplot(data = filter(df_h,
                                !(site %in% bad)),
-                aes(x = measure,
-                    y = rank,
-                    color = site)) +
-  geom_point(size = 3) +
-  # scale_shape_manual(name = "Site",
-  #                    values = c(1, 16)) +
-  # stat_smooth(formula = y ~ exp(x)) +
-  facet_wrap(~measure.type,
-             labeller = label_parsed) +
+                 aes(x = measure,
+                     y = rank)
+                ) +
+  geom_point(aes(
+                 color = site,
+                 shape = site),
+             alpha = 0.7) +
+  scale_shape_manual(name = "Site",
+                     labels = c("D1", "D2", "D3", "D4",
+                                "T1", "T2", "T3"),
+                     values = c(1, 1, 1, 1,
+                                16, 16, 16)) +
+  scale_color_viridis(name = "Site",
+                      labels = c("D1", "D2", "D3", "D4",
+                                 "T1", "T2", "T3"),
+                      discrete = TRUE) +
+  stat_smooth(formula = y ~ exp(x),
+              se = FALSE,
+              show.legend = FALSE) +
+  geom_text(data = mod_sum,
+            aes(x = x,
+                y = y,
+                label = paste("list(",
+                              round(exp(int), digits = 2), 
+                              "*e^{",
+                              round(coef, digits = 2),
+                              "*x",
+                              "}",
+                              ")")),
+            show.legend = FALSE,
+            size = 2.5,
+            parse = TRUE) +
   theme_bw() +
-  scale_x_log10(
-    labels = trans_format('log10', math_format(10 ^ .x))
-    ,
-    limits = c(10 ^ -1.2, 10 ^ 1.2),
-    breaks = c(10 ^ -1, 10 ^ -0, 10 ^ 1)
-    ) +
+  xscale("log10", .format = TRUE) +
   scale_y_log10(
-    labels = trans_format('log10', math_format(10 ^ .x))
-    ,
-    limits = c(10 ^ -2.2, 10 ^ 0.2),
-    breaks = c(10 ^ -2, 10 ^ -1, 10 ^ 0)
-    ) +
+         labels = trans_format('log10', math_format(10 ^ .x)),
+         limits = c(10 ^ -3.2, 10 ^ 0.2),
+         breaks = c(10^-3, 10 ^ -2, 10 ^ -1, 10 ^ 0)
+         ) +
   annotation_logticks(base = 10, sides = "tlbr") + 
   theme(
-    axis.title = element_text(face = "bold", size = 18),
-    axis.text = element_text(size = 18, colour = "black"),
     panel.background = element_blank(),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
-    strip.text = element_text(face = "bold", size = 16),
+    plot.margin = unit(c(1,1,1,1), "cm"),
     aspect.ratio = 1,
+    legend.position = c(0.08, 0.39),
+    legend.key.size = unit(0.2, "cm"),
+    legend.text = element_text(size = 7),
     legend.title = element_blank(),
-    legend.position = c(0.12, 0.17),
-    legend.text = element_text(size = 16),
     legend.background = element_rect(
       fill = "gray90",
-      size = 1,
       linetype = "solid",
       colour = "black")) + 
   xlab("") +
-  ylab(expression("P (" * X>=x * ")"))
-
-p_rank
-
-ggsave(p_rank, filename = "Hummock_exponential.tiff",
+  ylab(expression("P (" * X>=x * ")")) + 
+  facet_wrap(~measure.type, ncol = 3, scales = "free_x", 
+             labeller = label_parsed)
+ggsave(p_rank, filename = "Hummock_properties_rank.tiff",
        device = "tiff",
-       dpi = 600,
-       width = 10,
-       height = 6)
-
+       dpi = 300,
+       width = 6,
+       height = 4)
 
 
 

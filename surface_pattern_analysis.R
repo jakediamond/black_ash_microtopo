@@ -1,7 +1,7 @@
 # 
 # Author: Jake Diamond
 # Purpose: Analysis of surface models, distributions, semivariograms
-# Date: December 1, 2018
+# Date: February 4, 2019
 # 
 
 # Set Working Directory
@@ -16,11 +16,8 @@ library(gstat)
 library(tidyverse)
 library(broom)
 library(viridis)
+library(cowplot)
 
-# Note: T1 is riddled with hummocks, not looking bimodal
-# D2, L3 maybe needs to be detrended (quad)
-# D1, L2 (maybe), T2, T3 (maybe) needs to be detrended (linear)
-# D3, D4, L3 does not need to be detrended
 # Run analysis for different detrended data types
 for(i in 1:3){
   # Get all filenames
@@ -58,7 +55,7 @@ for(i in 1:3){
     print(paste("Doing cluster analysis for site", s))
     # Load raster file
     r <- raster(filenames[j])
-    # plot(r)
+    
     # Convert raster to points
     xyz <- rasterToPoints(r)
     xyz <- as.data.frame(xyz)
@@ -85,8 +82,17 @@ for(i in 1:3){
     # Remove data for memory
     rm(r)
     
+    # First want to get rid of edge effects, so reduce the
+    # window size
+    xyzSub <- xyz %>%
+      dplyr::filter(between(x, 
+                            quantile(x, 0.1),
+                            quantile(x, 0.9)),
+                    between(y, 
+                            quantile(y, 0.1),
+                            quantile(y, 0.9)))
     # Subsample the data for less computing power...same results
-    xyzSample <- dplyr::sample_n(xyz, size = 10000)
+    xyzSample <- dplyr::sample_n(xyzSub, size = 10000)
     
     # Get an esimate of the number of clusters that defines the sample
     mcl <- Mclust(xyzSample$z)
@@ -166,41 +172,43 @@ for(i in 1:3){
       dplyr::select(X, Y, Z, hum, id) %>%
       mutate(X = round(X, 2),
              Y = round(Y, 2))
-    # Get data into long format and subsample for fast proc.
-    z_l <- xyz %>%
+    # Join the hummock metadata with the xyz data
+    z_l <- xyzSub %>%
       mutate(X = round(x, 2),
              Y = round(y, 2)) %>%
       left_join(hu, by = c("X", "Y")) %>%
-      mutate(hum = ifelse(!is.na(hum), 1,
+      mutate(hum = ifelse(!is.na(hum), 1, 0),
+             hum2 = ifelse(!is.na(hum), 1,
                           ifelse(z < mean(z),
                                  0,
-                                 NA))) %>%
-      dplyr::filter(!is.na(hum)) %>%
+                                 NA)))
+    # Subsample data for faster processing
+    z_lSam <- z_l %>%
       sample_n(10000) %>%
       dplyr::select(z, hum)
 
-    dif <- mean(z_l[z_l$hum == 1, "z"]) - 
-      mean(z_l[z_l$hum == 0, "z"])
-    dif_sd <- sqrt(sd(z_l[z_l$hum == 1, "z"])^2 + 
-                     sd(z_l[z_l$hum == 0, "z"])^2)
+    # Remove data
+    rm(hu, dmcl, mcl, bimdl, trimdl, unimdl)
     
     # Plot data colored by hummock or hollow
-    p_hum <- ggplot() +
-      geom_density(data = z_l,
-                     aes(x = z,
-                         y=(..scaled..) * n,
-                         fill = as.factor(hum)),
+    p_hum <- ggplot(data = z_lSam) +
+      geom_density(aes(x = z,
+                       y = (..scaled..) * n,
+                       fill = as.factor(hum)),
                    alpha = 0.3) + 
       scale_fill_viridis(breaks = c(0, 1),
-                        labels = c("Hollow",
-                                   "Hummock"),
+                         labels = c("Hollow",
+                                    "Hummock"),
                         discrete = TRUE,
                         option = "cividis") +
       theme_bw() +
-      # geom_text(x = 0.15,
-      #           y = 0.65,
-      #           aes(label = paste("list(Delta*bar(z) ==", 
-      #                             round(dif, digits=2), ")")),
+      # geom_text(y = 4200,
+      #           aes(x = max(z) - (max(z)- min(z)) * 0.25,
+      #               label = paste("list(Delta*bar(z) ==",
+      #                             round(dif, digits=2),
+      #                             "%+-%", 
+      #                             round(dif_sd, digits=2), 
+      #                             ")")),
       #           show.legend = FALSE,
       #           parse = TRUE) +
       theme(legend.position = c(0.75, 0.8),
@@ -208,149 +216,18 @@ for(i in 1:3){
             panel.grid.minor = element_blank(),
             legend.title = element_blank()
       ) +
-      ylab("Density") +
+      ylab("Count") +
       xlab("Relative Elevation (m)")
     p_hum
     ggsave(plot = p_hum,
            filename = paste(s, 
                             trend,
-                            "histogram.tiff",
+                            "histogram_sample.tiff",
                             sep = "_"),
            device = "tiff",
            width = 4, height = 3,
            units = "in")
-      
-    
-    # Plot bimodal if D is less than -6 (rule of thumb)
-    # And also if the difference in means is greater than 10 cm
-    # if(D > 20 & D_m > 0.1){
-    #   mean1 <- bimdl$parameters$mean[1]
-    #   mean2 <- bimdl$parameters$mean[2]
-    #   sigma1 <- sqrt(bimdl$parameters$variance$sigmasq[1])
-    #   sigma2 <- ifelse(is.na(sqrt(bimdl$parameters$variance$sigmasq[2])),
-    #                    sigma1,
-    #                    sqrt(bimdl$parameters$variance$sigmasq[2]))
-    #   lam1 <- bimdl$parameters$pro[1]
-    #   lam2 <- bimdl$parameters$pro[2]
-    #   # Function to plot both normal distributions
-    #   plot_mix_comps <- function(x, mu, sigma, lam) {
-    #     lam * dnorm(x, mu, sigma)
-    #   }
-    #   # Plotting bimodal
-    #   p_b <- ggplot() +
-    #     geom_histogram(data = xyz,
-    #                    aes(x = z,
-    #                        ..density..,
-    #                        fill =..x..),
-    #                    bins = 100) +
-    #     stat_function(fun = plot_mix_comps,
-    #                   aes(colour = "1"),
-    #                   args = list(mean1,
-    #                               sigma1,
-    #                               lam1),
-    #                   lwd = 1.2) +
-    #     stat_function(fun = plot_mix_comps,
-    #                   aes(colour = "2"),
-    #                   args = list(mean2,
-    #                               sigma2,
-    #                               lam2),
-    #                   lwd = 1.2) +
-    #     geom_segment(aes(x = mean1,
-    #                      xend = mean1,
-    #                      y = 0,
-    #                      yend = max(density(xyz$z)$y)),
-    #                  colour = "blue",
-    #                  linetype = "dashed",
-    #                  size = 1.2
-    #     ) +
-    #     geom_segment(aes(x = mean2,
-    #                      xend = mean2,
-    #                      y = 0,
-    #                      yend = max(density(xyz$z)$y)),
-    #                  colour = "green",
-    #                  linetype = "dashed",
-    #                  size = 1.2
-    #     ) +
-    #     geom_text(aes(x = mean1 + 0.08,
-    #                   y = max(density(xyz$z)$y) + 0.05,
-    #                   label = round(mean1, 2)),
-    #               color = "blue"
-    #     ) +
-    #     geom_text(aes(x = mean2 + 0.08,
-    #                   y = max(density(xyz$z)$y) + 0.05,
-    #                   label = round(mean2, 2)),
-    #               color = "green"
-    #     ) +
-    #     scale_colour_manual("Component",
-    #                         values = c("1" = "blue",
-    #                                    "2" = "green")) +
-    #     scale_fill_gradientn(colours = c("blue",
-    #                                      "green",
-    #                                      "yellow",
-    #                                      "red")) +
-    #     theme_bw() +
-    #     theme(legend.position = "none",
-    #           axis.title.x = element_text(face = "bold",
-    #                                       vjust = 0.6),
-    #           axis.title.y = element_text(face = "bold",
-    #                                       vjust = 0.6),
-    #           # axis.text.x = element_text(size = 24),
-    #           # axis.text.y = element_text(size = 24),
-    #           panel.grid.major = element_blank(),
-    #           panel.grid.minor = element_blank()
-    #     ) +
-    #     ylab("Density") +
-    #     xlab("Relative Elevation (m)")
-    #   
-    #   ggsave(plot = p_b, filename = paste(s, 
-    #                                       trend,
-    #                                       "Bimodal.tiff",
-    #                                       sep = "_"),
-    #          device = "tiff",
-    #          width = 4, height = 3,
-    #          units = "in")
-    # } else {
-    #   mean1 <- bimdl$parameters$mean[1]
-    #   sigma1 <- sqrt(bimdl$parameters$variance$sigmasq[1])
-    #   # Function to plot normal distributions
-    #   plot_comps <- function(x, mu, sigma, lam) {
-    #     dnorm(x, mu, sigma)
-    #   }
-    #   # Plotting unimodal
-    #   p_u <- ggplot(data = xyz, aes(x = z)) +
-    #     # ,fill = ..x..)) +
-    #     geom_histogram(aes(z,
-    #                        ..density..),
-    #                    bins = 100) +
-    #     stat_function(fun = plot_comps,
-    #                   args = list(mean1,
-    #                               sigma1),
-    #                   lwd = 1.2,
-    #                   color = "black") +
-    #     # scale_fill_gradientn(colours = c("blue",
-    #     #                                  "green",
-    #     #                                  "yellow",
-    #     #                                  "red")) +
-    #     theme_bw() +
-    #     theme(legend.position = "none",
-    #           axis.title.x = element_text(face = "bold",
-    #                                       vjust = 0.6),
-    #           axis.title.y = element_text(face = "bold",
-    #                                       vjust = 0.6),
-    #           panel.grid.major = element_blank(),
-    #           panel.grid.minor = element_blank()
-    #     ) +
-    #     ylab("Density") +
-    #     xlab("Relative Elevation (m)")
-    #   
-    #   ggsave(plot = p_u, filename = paste(s, 
-    #                                       trend,
-    #                                       "_Unimodal.tiff",
-    #                                       sep = "_"),
-    #          device = "tiff",
-    #          width = 4, height = 3,
-    #          units = "in")
-    # }
+     
     # Combine all cluster data for all sites
     mcl_site <- mcl_tidy %>%
       dplyr::rename(G = component) %>%
@@ -369,9 +246,9 @@ for(i in 1:3){
     # Semivariogram analysis --------------------------------------------------
     print(paste("Doing semivariogram analysis for site", s))
     # Turn data in to a spatial dataframe for analysis
-    xy <- xyz[, c(1, 2)]
+    xy <- xyzSub[, c(1, 2)]
     spdf <- SpatialPointsDataFrame(coords = xy,
-                                   data = xyz,
+                                   data = xyzSub,
                                    proj4string =
                                      CRS("+proj=utm +zone=15 +datum=WGS84"))
     
@@ -407,10 +284,6 @@ for(i in 1:3){
     semi <- ggplot(data = vario, aes(x = dist, y = gamma)) +
       geom_point(size = 1.8) + theme_bw() + 
       theme(legend.position = "none",
-            axis.title.x = element_text(face = "bold", 
-                                        vjust = 0.6), 
-            axis.title.y = element_text(face = "bold", 
-                                        vjust = 0.6),
             panel.grid.major.x = element_blank(),
             panel.grid.minor.x = element_blank(),
             panel.grid.minor.y = element_blank(),
@@ -418,18 +291,12 @@ for(i in 1:3){
       geom_hline(yintercept =  zsill, 
                  size = 1.4,
                  linetype = "dashed") + 
-      # geom_vline(xintercept = locmin,
-      #            size = 1,
-      #            linetype = "dashed",
-      #            color = "dark grey") +
       annotate("text", x = 2.5, y = zsill + 0.002, 
                label = paste("Sill =", 
                              round(zsill, 3))) +
-      # scale_x_continuous(breaks = seq(0, 15, 2)) +
-      # scale_y_continuous(breaks = seq(0, 0.03, 0.005)) +
       ylab("Semivariance") +
       xlab("Distance (m)")
-    
+    semi
     ggsave(plot = semi, 
            filename = paste(s, 
                             trend,
@@ -486,7 +353,6 @@ for(i in 1:3){
                        values = c(16, 1, 0),
                        guide = FALSE) + 
     scale_colour_viridis_d(name = "Site") + 
-    # guide_legend(nrow = 2) +
     geom_point(size = 1.8) + theme_bw() + 
     theme(legend.position = "bottom",
           axis.title.x = element_text(face = "bold", 
@@ -497,18 +363,6 @@ for(i in 1:3){
           panel.grid.minor.x = element_blank(),
           panel.grid.minor.y = element_blank(),
           panel.grid.major.y = element_blank()) +
-    # geom_hline(yintercept =  zsill, 
-    #            size = 1.2,
-    #            linetype = "dashed") + 
-    # geom_vline(xintercept = locmin,
-    #            size = 1,
-    #            linetype = "dashed",
-    #            color = "dark grey") +
-    # annotate("text", x = 2.5, y = zsill + 0.002, 
-    #          label = paste("Sill =", 
-    #                        round(zsill, 3))) +
-    # scale_x_continuous(breaks = seq(0, 15, 2)) +
-    # scale_y_continuous(breaks = seq(0, 0.03, 0.005)) +
     ylab("Semivariance") +
     xlab("Distance (m)")
   
@@ -526,6 +380,7 @@ for(i in 1:3){
   p_hum_all <- ggplot() +
     geom_density(data = z_l_all,
                  aes(x = z,
+                     y = (..scaled..) * n,
                      fill = as.factor(hum)),
                  alpha = 0.3) + 
     scale_fill_viridis(breaks = c(0, 1),
@@ -546,13 +401,13 @@ for(i in 1:3){
           legend.title = element_blank()
     ) +
     facet_wrap(~site) +
-    ylab("Density") +
+    ylab("Count") +
     xlab("Relative Elevation (m)")
   
   ggsave(plot = p_hum_all,
          filename = paste("all_sites", 
                           trend,
-                          "histogram.tiff",
+                          "histogram_sample.tiff",
                           sep = "_"),
          device = "tiff",
          width = 6, height = 4,
@@ -595,6 +450,9 @@ df_sum <- read.csv("Lidar/hummock_stats_ext6.csv") %>%
   dplyr::select(-X) %>%
   dplyr::filter(area > 0.1,
                 zmaxn > 0.15) %>%
+  mutate(zmaxn = ifelse(site %in% c("B1", "B3", "B6"),
+                        z80n,
+                        zmaxn)) %>%
   group_by(site) %>%
   summarize(no = n(),
             aratio = sum(area) / mean(site_area),
@@ -613,16 +471,14 @@ df$num <- str_sub(df$site, 2, 2)
 df_sum$type <- str_sub(df_sum$site, 1, 1)
 df_sum$num <- str_sub(df_sum$site, 2, 2)
 
-# Get x and y coordinates for the plot
-df_sum$x <- c()
-
 # Subsample data for faster processing
 dfSam <- dplyr::sample_n(df, size = 10000)
-
-library(ggpubr)
+rm(df)
+# Plot data
 p_hum_best_d <- ggplot() +
   geom_density(data = dplyr::filter(dfSam, type == "D"),
                aes(x = z,
+                   y = (..scaled..) * n,
                    fill = as.factor(hum)),
                alpha = 0.3) + 
   scale_fill_viridis(breaks = c(0, 1),
@@ -630,32 +486,37 @@ p_hum_best_d <- ggplot() +
                                 "Hummock"),
                      discrete = TRUE,
                      option = "cividis") +
+  scale_y_continuous(limits = c(0, 8000),
+                     breaks = seq(0, 8000, 2000)) +
+  scale_x_continuous(limits = c(-0.2, 0.65),
+                     breaks = seq(-0.2, 0.6, 0.2)) +
   theme_bw() +
-  # geom_text(data = df_sum,
-  #           x = x,
-  #           y = y,
-  #           aes(label = paste("list(Delta*bar(z) ==",
-  #                             round(zavg, digits=2), 
-  #                             "%+-%", round(zsd, digits=2), ")")),
-  #           show.legend = FALSE,
-  #           parse = TRUE,
-  #           size = 2.5) +
-  # geom_text(data = df_sum,
-  #           x = x,
-  #           y = y,
-  #           aes(label = paste("list(n ==",
-  #                             no, ")")),
-  #           show.legend = FALSE,
-  #           parse = TRUE,
-  #           size = 2.5) +
-  # geom_text(data = df_sum,
-  #           x = x,
-  #           y = y,
-  #           aes(label = paste("list(A[ratio] ==",
-  #                             round(aratio, digits=2), ")")),
-  #           show.legend = FALSE,
-  #           parse = TRUE,
-  #           size = 2.5) +
+  geom_text(data = dplyr::filter(df_sum, type == "D"),
+            x = 0.43,
+            y = 7400,
+            aes(label = paste("list(Delta*bar(z) ==",
+                              round(zavg, digits = 2),
+                              "%+-%", 
+                              round(zsd, digits = 2), ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
+  geom_text(data = dplyr::filter(df_sum, type == "D"),
+            x = 0.53,
+            y = 6500,
+            aes(label = paste("list(n ==",
+                              no, ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
+  geom_text(data = dplyr::filter(df_sum, type == "D"),
+            x = 0.48,
+            y = 5450,
+            aes(label = paste("list(A[ratio] ==",
+                              round(aratio, digits=2), ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
   theme(legend.justification = "top",
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
@@ -671,6 +532,7 @@ p_hum_best_da <- p_hum_best_d + theme(legend.position = "none")
 p_hum_best_l <- ggplot() +
   geom_density(data = dplyr::filter(dfSam, type == "L"),
                aes(x = z,
+                   y = (..scaled..) * n,
                    fill = as.factor(hum)),
                alpha = 0.3) + 
   scale_fill_viridis(breaks = c(0, 1),
@@ -678,32 +540,37 @@ p_hum_best_l <- ggplot() +
                                 "Hummock"),
                      discrete = TRUE,
                      option = "cividis") +
+  scale_y_continuous(limits = c(0, 8000),
+                     breaks = seq(0, 8000, 2000)) +
+  scale_x_continuous(limits = c(-0.2, 0.65),
+                     breaks = seq(-0.2, 0.6, 0.2)) +
   theme_bw() +
-  # geom_text(data = df_sum,
-  #           x = x,
-  #           y = y,
-  #           aes(label = paste("list(Delta*bar(z) ==",
-  #                             round(zavg, digits=2), 
-  #                             "%+-%", round(zsd, digits=2), ")")),
-  #           show.legend = FALSE,
-  #           parse = TRUE,
-  #           size = 2.5) +
-  # geom_text(data = df_sum,
-  #           x = x,
-#           y = y,
-#           aes(label = paste("list(n ==",
-#                             no, ")")),
-#           show.legend = FALSE,
-#           parse = TRUE,
-#           size = 2.5) +
-# geom_text(data = df_sum,
-#           x = x,
-#           y = y,
-#           aes(label = paste("list(A[ratio] ==",
-#                             round(aratio, digits=2), ")")),
-#           show.legend = FALSE,
-#           parse = TRUE,
-#           size = 2.5) +
+  geom_text(data = dplyr::filter(df_sum, type == "L"),
+            x = 0.43,
+            y = 7400,
+            aes(label = paste("list(Delta*bar(z) ==",
+                              round(zavg, digits = 2),
+                              "%+-%", 
+                              round(zsd, digits = 2), ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
+  geom_text(data = dplyr::filter(df_sum, type == "L"),
+            x = 0.53,
+            y = 6500,
+            aes(label = paste("list(n ==",
+                              no, ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
+  geom_text(data = dplyr::filter(df_sum, type == "L"),
+            x = 0.48,
+            y = 5450,
+            aes(label = paste("list(A[ratio] ==",
+                              round(aratio, digits=2), ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
 theme(legend.position = "none",
       panel.grid.major = element_blank(),
       panel.grid.minor = element_blank(),
@@ -713,11 +580,11 @@ theme(legend.position = "none",
   facet_wrap(~site, ncol = 4, scales = "free_y") +
   ylab("Density") +
   xlab("Relative Elevation (m)")
-p_hum_best_l
 
 p_hum_best_t <- ggplot() +
   geom_density(data = dplyr::filter(dfSam, type == "T"),
                aes(x = z,
+                   y = (..scaled..) * n,
                    fill = as.factor(hum)),
                alpha = 0.3) + 
   scale_fill_viridis(breaks = c(0, 1),
@@ -725,45 +592,49 @@ p_hum_best_t <- ggplot() +
                                 "Hummock"),
                      discrete = TRUE,
                      option = "cividis") +
+  scale_y_continuous(limits = c(0, 8000),
+                     breaks = seq(0, 8000, 2000)) +
+  scale_x_continuous(limits = c(-0.2, 0.65),
+                     breaks = seq(-0.2, 0.6, 0.2)) +
   theme_bw() +
-  # geom_text(data = df_sum,
-  #           x = x,
-  #           y = y,
-  #           aes(label = paste("list(Delta*bar(z) ==",
-  #                             round(zavg, digits=2), 
-  #                             "%+-%", round(zsd, digits=2), ")")),
-  #           show.legend = FALSE,
-  #           parse = TRUE,
-  #           size = 2.5) +
-  # geom_text(data = df_sum,
-  #           x = x,
-#           y = y,
-#           aes(label = paste("list(n ==",
-#                             no, ")")),
-#           show.legend = FALSE,
-#           parse = TRUE,
-#           size = 2.5) +
-# geom_text(data = df_sum,
-#           x = x,
-#           y = y,
-#           aes(label = paste("list(A[ratio] ==",
-#                             round(aratio, digits=2), ")")),
-#           show.legend = FALSE,
-#           parse = TRUE,
-#           size = 2.5) +
-theme(legend.position = "none",
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank(),
-      legend.title = element_blank(),
-      axis.text.y = element_blank()
-) +
+  geom_text(data = dplyr::filter(df_sum, type == "T"),
+            x = 0.43,
+            y = 7400,
+            aes(label = paste("list(Delta*bar(z) ==",
+                              round(zavg, digits = 2),
+                              "%+-%", 
+                              round(zsd, digits = 2), ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
+  geom_text(data = dplyr::filter(df_sum, type == "T"),
+            x = 0.53,
+            y = 6500,
+            aes(label = paste("list(n ==",
+                              no, ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
+  geom_text(data = dplyr::filter(df_sum, type == "T"),
+            x = 0.48,
+            y = 5450,
+            aes(label = paste("list(A[ratio] ==",
+                              round(aratio, digits=2), ")")),
+            show.legend = FALSE,
+            parse = TRUE,
+            size = 2.5) +
+  theme(legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.title = element_blank(),
+        axis.text.y = element_blank()
+  ) +
   facet_wrap(~site, ncol = 4, scales = "free_y") +
   ylab("Density") +
   xlab("Relative Elevation (m)")
-p_hum_best_t
 
 legend <- cowplot::get_legend(p_hum_best_d)
-library(cowplot)
+
 p_hum_best2 <- ggdraw() +
   draw_plot(p_hum_best_da + rremove("x.text") + rremove("x.title"), 
             x = 0, y = 0.7, width = 1, height = 0.3) +
@@ -773,9 +644,9 @@ p_hum_best2 <- ggdraw() +
             x = 0, y = 0, width = 0.76, height = 0.4) + 
   draw_grob(legend,
             0.82, 0, .3/3.3, 0.5)
-p_hum_best2
+
 ggsave(plot = p_hum_best2,
-       filename = "all_sites_densities_v2.tiff",
+       filename = "all_sites_densities_v3.tiff",
        device = "tiff",
        width = 6, height = 4,
        units = "in")

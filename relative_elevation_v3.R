@@ -22,7 +22,7 @@ elev <- read.csv("clean_hummocks_and_valpts_detrend.csv") %>%
 wells <- read.csv("HydroData/well_ht_aboveground.csv")
 
 # Load hydrology data
-hydro <- read.csv("average_wt_info_new_sites_v5_same years.csv") %>%
+hydro <- read.csv("average_wt_info_new_sites_v4.csv") %>%
   dplyr::select(-X, -(8:14))
 
 # Need to first account for the fact that points 
