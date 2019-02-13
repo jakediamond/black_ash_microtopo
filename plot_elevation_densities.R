@@ -90,8 +90,11 @@ df_sum <- read.csv("Lidar/hummock_stats_ext6.csv") %>%
   dplyr::filter(area > 0.1,
                 zmaxn > 0.15) %>%
   mutate(zmaxn = ifelse(site %in% c("B1", "B3", "B6"),
-                        z80n,
-                        zmaxn)) %>%
+                        zmeann,
+                        zmaxn),
+         z80n = ifelse(site %in% c("B1", "B3", "B6"),
+                        z20n,
+                        z80n)) %>%
   group_by(site) %>%
   summarize(no = n(),
             aratio = sum(area) / mean(site_area),
@@ -115,6 +118,30 @@ dfSam <- df %>%
   group_by(site) %>%
   sample_n(size = 10000)
 rm(df)
+
+# Add averages of the samples to the summary dataframe
+df_sum <- dfSam %>%
+  group_by(site, type, trend, num, hum2) %>%
+  # gather(key = "huho", value = "")
+  summarize(avg2 = mean(z),
+            sd2 = sd(z)) %>%
+  gather(key = "stat", value = "value",
+         -site, -type, -trend, -num, -hum2) %>%
+  spread(key = "hum2", value = "value") %>%
+  group_by(site, type, trend, num, stat) %>%
+  mutate(delz = ifelse(stat == "avg2",
+                       `1` - `0`,
+                       NA),
+         delvar = ifelse(stat == "sd2",
+                         sqrt(`1`^2 + `0`^2),
+                         NA)) %>%
+  ungroup() %>%
+  dplyr::select(-stat, -`0`, -`1`, -`<NA>`) %>%
+  group_by(site, type, trend, num) %>%
+  fill(delz) %>%
+  na.omit() %>%
+  right_join(df_sum)
+
 # Plot data binary
 p_hum_best_d <- ggplot() +
   geom_density(data = dplyr::filter(dfSam, type == "D"),
@@ -136,7 +163,8 @@ p_hum_best_d <- ggplot() +
             x = 0.43,
             y = 7900,
             aes(label = paste("list(Delta*bar(z) ==",
-                              round(zavg, digits = 2),
+                              round(zavg, 
+                                    digits = 2),
                               "%+-%", 
                               round(zsd, digits = 2), ")")),
             show.legend = FALSE,
@@ -314,9 +342,9 @@ p_hum_best_d2 <- ggplot() +
             x = 0.43,
             y = 6400,
             aes(label = paste("list(Delta*bar(z) ==",
-                              round(zavg, digits = 2),
+                              round(delz, digits = 2),
                               "%+-%", 
-                              round(zsd, digits = 2), ")")),
+                              round(delvar, digits = 2), ")")),
             show.legend = FALSE,
             parse = TRUE,
             size = 2.5) +
@@ -369,9 +397,9 @@ p_hum_best_l2 <- ggplot() +
             x = 0.43,
             y = 6400,
             aes(label = paste("list(Delta*bar(z) ==",
-                              round(zavg, digits = 2),
+                              round(delz, digits = 2),
                               "%+-%", 
-                              round(zsd, digits = 2), ")")),
+                              round(delvar, digits = 2), ")")),
             show.legend = FALSE,
             parse = TRUE,
             size = 2.5) +
@@ -422,9 +450,9 @@ p_hum_best_t2 <- ggplot() +
             x = 0.43,
             y = 6400,
             aes(label = paste("list(Delta*bar(z) ==",
-                              round(zavg, digits = 2),
+                              round(delz, digits = 2),
                               "%+-%", 
-                              round(zsd, digits = 2), ")")),
+                              round(delvar, digits = 2), ")")),
             show.legend = FALSE,
             parse = TRUE,
             size = 2.5) +
@@ -454,7 +482,7 @@ p_hum_best_t2 <- ggplot() +
   ylab("Density") +
   xlab("Relative Elevation (m)")
 
-legend2 <- cowplot::get_legend(p_hum_best_d)
+legend2 <- cowplot::get_legend(p_hum_best_d2)
 
 p_hum_best3 <- ggdraw() +
   draw_plot(p_hum_best_da2 + rremove("x.text") + rremove("x.title"), 
@@ -471,3 +499,32 @@ ggsave(plot = p_hum_best3,
        device = "tiff",
        width = 6, height = 4,
        units = "in")
+
+
+
+# Semivariograms on hummocks and hollows ----------------------------------
+library(mclust)
+df_huho <- filter(df, !is.na(hum2))
+rm(df)
+df_semi <- df_huho %>%
+  select(site, z) %>%
+  group_by(site) %>%
+  sample_n(10000) %>%
+  nest()
+rm(df_huho)
+
+semis <- df_semi %>%
+  mutate(result = purrr::map(data, Mclust))
+
+
+# Tidy the data for export
+mcl_tidy <- tidy(mcl) %>%
+  dplyr::filter(row_number()==n()) %>%
+  dplyr::select(5:ncol(.)) %>%
+  gather(key = "component",
+         value = "mean") %>%
+  mutate(component = as.numeric(str_sub(component, 
+                                        start = -1L))) %>%
+  right_join(tidy(mcl) %>%
+               dplyr::select(1:4)) %>%
+  mutate(site = s)

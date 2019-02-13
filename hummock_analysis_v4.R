@@ -16,6 +16,7 @@ library(tidyverse)
 library(broom)
 library(scales)
 library(sf)
+library(poweRlaw)
 
 # Get hummock data (x, y, area, vol, perim)
 # df <- read.csv("Lidar/delineate_all_sites.csv")
@@ -281,26 +282,68 @@ ggsave(plot = p_nn,
 df_h <- df %>%
   dplyr::select(site, area_poly,
                 vol, perim_poly) %>%
+  dplyr::filter(area_poly > 0.05) %>%
   gather(key = "measure.type", value = "measure",
          -site) %>%
   group_by(site, measure.type) %>%
   mutate(rank = cume_dist(desc(measure)),
          type = str_sub(site, 1, 1))
 
-# Model for exponential estimate model
+hist(exp(data))
+
+# exponential model fit with site as dummy variable
+e_mod_site <- lm(rank ~ log(measure) * site, 
+                 data = filter(df_h,
+                               measure.type == "area_poly"))
+summary(e_mod_site)
+e_mod_all <- lm(log(rank) ~ measure, 
+                data = filter(df_h,
+                              measure.type == "area_poly"))
+summary(e_mod_all)
+
+# Likelihood ratio test for including site in the model
+anova(e_mod_site, e_mod_all, test="LRT")
+
+
+# Model for exponential estimate model at each site
+e_mod_site<- function(data) {
+  lm(log(rank) ~ measure * site, data = data)
+}
+
+# Just group by measure type
+mod_site <- df_h %>%
+  group_by(measure.type) %>%
+  nest() %>%
+  mutate(model = purrr::map(data, e_mod_site),
+         glance_e = purrr::map(model, glance),
+         pval = purrr::map_dbl(glance_e, "p.value"),
+         r2 = purrr::map_dbl(glance_e, "adj.r.squared"),
+         tidied = purrr::map(model, tidy)) %>% 
+  unnest(tidied, .drop = TRUE) %>%
+  dplyr::select(-std.error, -statistic, -p.value) %>%
+  spread(term, estimate)
+
+
+# Definitely should include site in the model (p<<<0.001, adj.r2 = 0.44)
+summary_e_mod_site <- tidy(e_mod_site)
+write.csv(summary_e_mod_site, "overall_exponential_model_summary.csv")
+
+# Model for exponential estimate model at each site
 e_mod <- function(data) {
-  lm(log(rank) ~ measure, data = data)
+  lm(log(rank) ~ log(measure), data = data)
 }
 
 # Fit exponential line to area, perim, vol, need to filter below 1 a bit
-mod <- df_h %>%
+mod_power <- df_h %>%
   group_by(site, measure.type, type) %>%
-  dplyr::filter(rank < 0.95) %>%
+  filter(measure > 0) %>%
+  # dplyr::filter(rank < 0.95) %>%
   nest() %>%
-  mutate(model = map(data, e_mod),
-         glance_e = map(model, glance),
-         pval = map_dbl(glance_e, "p.value"),
-         tidied = map(model, tidy)) %>% 
+  mutate(model = purrr::map(data, e_mod),
+         glance_e = purrr::map(model, glance),
+         pval = purrr::map_dbl(glance_e, "p.value"),
+         r2 = purrr::map_dbl(glance_e, "adj.r.squared"),
+         tidied = purrr::map(model, tidy)) %>% 
   unnest(tidied, .drop = TRUE) %>%
   dplyr::select(-std.error, -statistic, -p.value) %>%
   spread(term, estimate)
@@ -357,7 +400,8 @@ p_rank <- ggplot(data = filter(df_h,
                       labels = c("D1", "D2", "D3", "D4",
                                  "T1", "T2", "T3"),
                       discrete = TRUE) +
-  stat_smooth(formula = y ~ exp(x),
+  stat_smooth(method = "lm",
+              formula = y ~ exp(x),
               se = FALSE,
               show.legend = FALSE) +
   geom_text(data = mod_sum,
@@ -444,3 +488,93 @@ plot(unmark(d2_ppp))
 lam <- predict(fit, locations = d2_ppp)
 Ki <- Kinhom(d2_ppp, lam)
 plot(Ki)
+
+
+
+# Power law analysis ------------------------------------------------------
+xmins <- df_h %>%
+  group_by(site, measure.type) %>%
+  distinct(measure) %>%
+  arrange(desc(measure))
+data <- df_h %>%
+  filter(site == "D1",
+         measure.type == "area_poly") %>%
+  pull(measure)
+xmins <- df_h %>%
+  filter(site == "D1",
+         measure.type == "area_poly") %>%
+  distinct(measure) %>%
+  pull(measure)
+
+m_bl_ln = conlnorm$new(data)
+m_bl_ln$setPars(estimate_pars(m_bl_ln))
+est = estimate_xmin(m_bl_ln)
+m_bl_ln$setXmin(est)
+lines(m_bl_ln, col=3, lwd=2)
+
+m_bl_exp = conexp$new(data)
+m_bl_exp$setPars(estimate_pars(m_bl_exp))
+est2 = estimate_xmin(m_bl_exp)
+m_bl_exp$setXmin(est)
+lines(m_bl_exp, col=4, lwd=2)
+
+com <- compare_distributions(m_bl_exp, m_bl_ln)
+com$p_two_sided
+
+
+
+m1 = conpl$new(data)
+m1$setXmin(estimate_xmin(m1))
+m2 = conlnorm$new(data)
+m2$setXmin(m1$getXmin())
+m2$setPars(estimate_pars(m2))
+plot(m2, ylab="CDF")
+lines(m1)
+lines(m2, col=2, lty=2)
+comp = compare_distributions(m1, m2)
+comp$p_two_sided
+
+
+
+
+
+
+dat = numeric(length(xmins))
+z = sort(data)
+
+for (i in 1:length(xmins)){
+  xmin = xmins[i] # choose next xmin candidate
+  z1 = z[z>=xmin] # truncate data below this xmin value
+  n = length(z1)
+  a = 1+ n*(sum(log(z1/xmin)))^-1 # estimate alpha using direct MLE
+  cx = (n:1)/n # construct the empirical CDF
+  cf = (z1/xmin)^(-a+1) # construct the fitted theoretical CDF
+  dat[i] = max(abs(cf-cx)) # compute the KS statistic
+}
+D = min(dat[dat>0],na.rm=TRUE) # find smallest D value
+xmin = xmins[which(dat==D)] # find corresponding xmin value
+z = data[data>=xmin]
+z = sort(z)
+n = length(z)
+alpha = 1 + n*(sum(log(z/xmin)))^-1 # get corresponding alpha estimate
+library(gsl)
+library(numDeriv)
+
+dpowerlaw <- function(x, alpha=2, xmin=1, log=F) {
+  if (log)
+    log(alpha-1) - log(xmin) - alpha * log(x / xmin)
+  else
+    ((alpha - 1) / xmin) * ((x / xmin) ^ (-alpha))
+}
+ppowerlaw <- function(q, alpha=2, xmin=1, lower.tail=T, log.p = F) {
+  p <- (q / xmin) ^ (- alpha + 1)
+  if (lower.tail)
+    p <- 1-p
+  if (log.p)
+    p <- log(p)
+  p
+}
+qpowerlaw <- function(p, alpha=2, xmin=1, lower.tail=T, log.p = F) {
+  if (!lower.tail)
+    p <- 1-p
+  if (log.p)

@@ -1,6 +1,6 @@
 # 
 # Author: Jake Diamond
-# Purpose: To analyze veg and chem data continuously with elev
+# Purpose: To analyze veg continuously with elev
 # Date: December 6, 2018
 # 
 

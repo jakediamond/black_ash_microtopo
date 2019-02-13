@@ -7,8 +7,8 @@
 # 
 
 # Set Working Directory
-setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
-# setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
+# setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
+setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 
 # Load libraries
 library(tidyverse)
@@ -60,7 +60,7 @@ df <- left_join(huho, conf) %>%
 # Make sure that depth to confining layer is numeric
 # and account for data >120 cm
 df$depth <- ifelse(df$depth == ">120",
-                   "150",
+                   NA,
                    df$depth)
 df$depth <- as.numeric(df$depth)
 df$depth <- df$depth / 100
@@ -93,20 +93,13 @@ lin_mods <- df_l %>%
   dplyr::select(-std.error, -statistic, -p.value) %>%
   spread(term, estimate)
 
-# Get x and y data for text on final plot
-lin_mods <- lin_mods %>%
-  mutate(x = c(0.75, NA, 1.2, 0.7, 0.82, 
-               0.75, 0.75, NA, NA, 0.77),
-         y = c(0.05, NA, -0.05, 0.35, 0, 
-               0, 0, NA, NA, -0.05)) %>%
-  right_join(lin_mods)
-
+# Pvalue text for plot
 lin_mods$pval_text = ifelse(lin_mods$pval < 0.001, 
-                                   "<0.001", 
-                                   round(lin_mods$pval, 3))
+                                   "p<0.001", 
+                                   paste0("p=", round(lin_mods$pval, 3)))
 
 # Write models to file
-write.csv(lin_mods, "soil_thick_versus_confining_depth.csv")
+write.csv(lin_mods, "soil_thick_versus_confining_depth_noNAs.csv")
 # Get sites that have significant relationships
 sig_sites <- lin_mods %>%
   dplyr::filter(pval < 0.01) %>%
@@ -121,26 +114,40 @@ p_conf_d <- ggplot(data = dplyr::filter(df_l,
   geom_point(aes(shape = hu.ho)) +
   scale_shape_manual(breaks = c("hollow", "hummock"),
                      labels = c("Hollow", "Hummock"),
-                     values = c(1, 16)) +
+                     values = c(1, 16),
+                     name = "Microsite") +
   ylab(expression("Soil thickness (m)")) +
   xlab("Confining layer elevation (m)") +
   theme_bw() +
   theme(legend.justification = "top",
-        legend.title = element_blank()) +
-  geom_abline(slope = -1,
+        # legend.title = element_blank(),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8),
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  geom_abline(aes(slope = -1,
                   intercept = 0,
+                  linetype = "Deposition (-1:1)"),
               color = "dark grey",
-              linetype = "dashed") + 
-  scale_y_continuous(limits = c(0, 1.6),
+              show.legend = FALSE) + 
+  geom_hline(aes(yintercept = 0.2,
+                 linetype = "Confining layer"),
+             color = "dark grey") +
+  scale_linetype_manual(name = "Control on soil elevation",
+                        breaks = c("Confining layer",
+                                   "Deposition (-1:1)"),
+                        values = c("dotted",
+                                   "dashed")) + 
+  scale_y_continuous(limits = c(0, 1.2),
                      breaks = seq(0, 1.5, 0.4)) +
-  scale_x_continuous(limits = c(-1.55, 0.1),
+  scale_x_continuous(limits = c(-1, 0.1),
                      breaks = seq(-1.5, 0, 0.5)) +
-  facet_wrap(~site, scales = "free_x", ncol = 4) +
   geom_text(data = dplyr::filter(lin_mods,
                                  site %in% sig_sites,
                                  type == "D"),
-            aes(x = -1.25,
-                y = 0.8,
+            aes(x = -0.25,
+                y = 0.95,
                 label = paste("list(R^2==",
                               round(rsq, digits=2), ")")),
             show.legend = FALSE,
@@ -149,8 +156,8 @@ p_conf_d <- ggplot(data = dplyr::filter(df_l,
   geom_text(data = dplyr::filter(lin_mods,
                                  site %in% sig_sites,
                                  type == "D"),
-            aes(x = -1.25,
-                y = 0.58,
+            aes(x = -0.25,
+                y = 1.1,
                 label = paste("list(slope==",
                               round(z, digits=1), ")")),
             show.legend = FALSE,
@@ -158,12 +165,12 @@ p_conf_d <- ggplot(data = dplyr::filter(df_l,
             parse = TRUE) +
   geom_text(data = dplyr::filter(lin_mods,
                                  type == "D"),
-            aes(x = -1.25,
-                y = 0.4,
-                label = paste("p=",
-                              pval_text)),
+            aes(x = -0.25,
+                y = 0.75,
+                label = pval_text),
             show.legend = FALSE,
-            size = 2)
+            size = 2) +
+  facet_wrap(~site, scales = "free_x", ncol = 4)
 p_conf_da <- p_conf_d + theme(legend.position = "none")
 
 p_conf_l <- ggplot(data = dplyr::filter(df_l,
@@ -176,21 +183,26 @@ p_conf_l <- ggplot(data = dplyr::filter(df_l,
   ylab(expression("Soil thickness (m)")) +
   xlab("Confining layer elevation (m)") +
   theme_bw() +
-  theme(legend.position = "none") +
+  theme(legend.position = "none",
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
   geom_abline(slope = -1,
               intercept = 0,
               color = "dark grey",
               linetype = "dashed") + 
-  scale_y_continuous(limits = c(0, 1.6),
+  geom_hline(yintercept = 0.2,
+             linetype = "dotted",
+             color = "dark grey") +
+  scale_y_continuous(limits = c(0, 1.2),
                      breaks = seq(0, 1.5, 0.4)) +
-  scale_x_continuous(limits = c(-1.55, 0.1),
+  scale_x_continuous(limits = c(-1, 0.1),
                      breaks = seq(-1.5, 0, 0.5)) +
-  facet_wrap(~site, scales = "free_x", ncol = 4) +
   geom_text(data = dplyr::filter(lin_mods,
                                  site %in% sig_sites,
                                  type == "L"),
-            aes(x = -1.25,
-                y = 0.8,
+            aes(x = -0.25,
+                y = 0.95,
                 label = paste("list(R^2==",
                               round(rsq, digits=2), ")")),
             show.legend = FALSE,
@@ -199,8 +211,8 @@ p_conf_l <- ggplot(data = dplyr::filter(df_l,
   geom_text(data = dplyr::filter(lin_mods,
                                  site %in% sig_sites,
                                  type == "L"),
-            aes(x = -1.25,
-                y = 0.58,
+            aes(x = -0.25,
+                y = 1.1,
                 label = paste("list(slope==",
                               round(z, digits=1), ")")),
             show.legend = FALSE,
@@ -208,12 +220,12 @@ p_conf_l <- ggplot(data = dplyr::filter(df_l,
             parse = TRUE) +
   geom_text(data = dplyr::filter(lin_mods,
                                  type == "L"),
-            aes(x = -1.25,
-                y = 0.4,
-                label = paste("p=",
-                              pval_text)),
+            aes(x = -0.25,
+                y = 0.75,
+                label = pval_text),
             show.legend = FALSE,
-            size = 2)
+            size = 2) +
+  facet_wrap(~site, scales = "free_x", ncol = 4)
 
 p_conf_t <- ggplot(data = dplyr::filter(df_l,
                                         type == "T"),
@@ -225,21 +237,26 @@ p_conf_t <- ggplot(data = dplyr::filter(df_l,
   ylab(expression("Soil thickness (m)")) +
   xlab("Confining layer elevation (m)") +
   theme_bw() +
-  theme(legend.position = "none") +
+  theme(legend.position = "none",
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
   geom_abline(slope = -1,
               intercept = 0,
               color = "dark grey",
               linetype = "dashed") + 
-  scale_y_continuous(limits = c(0, 1.6),
+  geom_hline(yintercept = 0.2,
+             linetype = "dotted",
+             color = "dark grey") +
+  scale_y_continuous(limits = c(0, 1.2),
                      breaks = seq(0, 1.5, 0.4)) +
-  scale_x_continuous(limits = c(-1.55, 0.1),
+  scale_x_continuous(limits = c(-1, 0.1),
                      breaks = seq(-1.5, 0, 0.5)) +
-  facet_wrap(~site, scales = "free_x", ncol = 4) +
   geom_text(data = dplyr::filter(lin_mods,
                                  site %in% sig_sites,
                                  type == "T"),
-            aes(x = -1.25,
-                y = 0.8,
+            aes(x = -0.25,
+                y = 0.95,
                 label = paste("list(R^2==",
                               round(rsq, digits=2), ")")),
             show.legend = FALSE,
@@ -248,8 +265,8 @@ p_conf_t <- ggplot(data = dplyr::filter(df_l,
   geom_text(data = dplyr::filter(lin_mods,
                                  site %in% sig_sites,
                                  type == "T"),
-            aes(x = -1.25,
-                y = 0.58,
+            aes(x = -0.25,
+                y = 1.1,
                 label = paste("list(slope==",
                               round(z, digits=1), ")")),
             show.legend = FALSE,
@@ -257,28 +274,28 @@ p_conf_t <- ggplot(data = dplyr::filter(df_l,
             parse = TRUE) +
   geom_text(data = dplyr::filter(lin_mods,
                                  type == "T"),
-            aes(x = -1.25,
-                y = 0.4,
-                label = paste("p=",
-                              pval_text)),
+            aes(x = -0.25,
+                y = 0.8,
+                label = pval_text),
             show.legend = FALSE,
-            size = 2)
+            size = 2) +
+  facet_wrap(~site, scales = "free_x", ncol = 4)
 
 legend <- cowplot::get_legend(p_conf_d)
 
 p_conf <- ggdraw() +
   draw_plot(p_conf_da + rremove("x.text") + rremove("x.title") +
               rremove("y.title"), 
-            x = 0.0347, y = 0.7, width = 0.96, height = 0.3) +
+            x = 0.035, y = 0.685, width = 0.96, height = 0.32) +
   draw_plot(p_conf_l + rremove("x.text") + rremove("x.title"),
-            x = 0, y = 0.4, width = 0.77, height = 0.3) +
+            x = 0, y = 0.39, width = 0.77, height = 0.32) +
   draw_plot(p_conf_t + rremove("y.title"),
-            x = 0.0343, y = 0, width = 0.7365, height = 0.4) +
+            x = 0.035, y = 0, width = 0.7365, height = 0.41) +
   draw_grob(legend,
-            0.82, 0, .3/3.3, 0.5)
+            0.84, 0.1, .3/3.3, 0.5)
 
 ggsave(plot = p_conf,
-       filename = "depth_vs_elevation_confining.tiff",
+       filename = "depth_vs_elevation_confining_spread.tiff",
        device = "tiff",
        width = 6, height = 4,
        units = "in")
