@@ -5,16 +5,19 @@
 # 
 
 # Set Working Directory
-# setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
-setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
+setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 
 # Load Libraries
+library(tidyverse)
 library(broom)
 library(vegan)
 library(lubridate)
 library(cowplot)
 library(ggpubr)
-library(tidyverse)
+library(gridExtra)
+library(MASS)
+library(lme4)
+
 # Load veg data
 df <- read_rds("veg_data.rds") %>%
   mutate(site = ifelse(site == "B1",
@@ -26,43 +29,97 @@ df <- read_rds("veg_data.rds") %>%
                                      site))))
 
 # Get data into format for vegan diversity function, and calc richness
-df_div_all <- df %>%
+df_r <- df %>%
   mutate(tot = ifelse(is.na(number),
                             percent,
                             number)) %>%
-  group_by(site, point, hu.ho, species) %>%
-  summarize(sum = sum(tot)) %>%
-  spread(key = species, 
-         value = sum, 
-         fill = 0)
-# Quick calc of overall richness site-huho
-df_div_all %>%
-  ungroup() %>%
-  select(-hu.ho, -site, -point) %>%
-  colSums(. > 0) %>%
-  sort()
+  group_by(site, point, plot, depth, hu.ho, moss) %>%
+  summarize(rich = sum(tot > 0, na.rm = T))
 
-  group_by
-  
-r <- df_div_all %>%
-  group_by(site, hu.ho) %>%
-  select(-point) %>%
-  summarise_all(funs(sum)) %>%
-  ungroup() %>%
-  gather(species, count, -hu.ho, -site) %>%
-  group_by(site, hu.ho) %>%
-  summarize(rich = sum(count > 0)) %>%
-  ungroup() %>%
+# Get elevation data
+df_r <- readRDS("elevations_wt") %>%
+  dplyr::select(site, point, z_relh_mean) %>%
+  right_join(df_r, by = c("site", "point")) %>%
+  rename(z = z_relh_mean)
+df_r$depth <- as.numeric(df_r$depth)
+
+mean(df_r$rich)
+# GLM model
+mod <- glmmPQL(rich ~ z, 
+               random = ~1|site/plot,
+               family = poisson(),
+               data = df_r)
+mod
+summary(mod)
+plot(mod)
+colvec <- c("#ff1111","#007eff") ## second colour matches lattice default
+grid.arrange(plot(mod,type=c("p","smooth")),
+             plot(mod,sqrt(abs(resid(.)))~fitted(.),
+                  col=colvec[1],
+                  type=c("p","smooth"),
+             ylab=expression(sqrt(abs(resid)))),
+             ## "sqrt(abs(resid(x)))"),
+             plot(mod,resid(.,type="pearson")~z,
+                  type=c("p","smooth")),
+             qqnorm(mod,abline=c(0,1),
+                    col=colvec[2]))
+
+
+mod2 <- glmmPQL(rich ~ moss * z, 
+               random = ~1|site,
+               family = poisson(),
+               data = df_r)
+summary(mod2)
+
+
+
+mod3 <- glmer(rich ~ z*log(depth) + (1|site),
+             family = poisson(),
+             data = df_r)
+summary(mod3)
+plot(mod3)
+
+mod4 <- glmer(rich ~ z*log(depth) + (1|site/plot),
+              family = poisson(),
+              data = df_r)
+summary(mod4)
+anova(mod4, mod3)
+
+mod5 <- glmmPQL(rich ~ z,
+                random = ~ 1|site,
+             family = poisson(),
+             data = df_r)
+
+
+ggplot(data = df_r,
+       aes(x = z,
+           y = rich,
+           color = site))+ geom_point() + 
+  stat_smooth(method = "lm",
+              se = FALSE) + 
+  scale_color_viridis_d() + facet_wrap(~site)
+
+newd <- df_r %>%
   group_by(site) %>%
-  mutate(tot = sum(rich),
-         prop = rich / tot) %>%
-  ungroup() %>%
-  group_by(hu.ho) %>%
-  summarize(richpm = mean(prop),
-            richsd = sd(prop))
+  mutate(n = n(),
+         z = seq(0.5, 2, length.out = n))
+pred <- predict(mod5, newdata = newd)
+ggplot(data = newd,
+       aes(x = z,
+           y = rich,
+           color = site))+ geom_point() + 
+  scale_color_viridis_d()
 
-rowSums(r[,-(1:2)] != 0)
+dfv <- df_r %>%
+  group_by(site) %>%
+  summarize(varz = sd(z, na.rm = T) / mean(z, na.rm = T),
+            varr = sd(rich) / mean(rich))
 
+ggplot(data = dfv,
+       aes(x = varz,
+           y = varr,
+           color = site))+ geom_point() + 
+  scale_color_viridis_d()
 # Just understory
 df_div <- df %>%
   filter(moss != 1) %>%
@@ -85,7 +142,7 @@ div_fun <- function(data) {
   badcols <- c("site", "hu.ho", "point")
   mat <- data %>%
     ungroup() %>%
-    dplyr::select(-one_of(badcols))
+    select(-one_of(badcols))
   shann <- diversity(mat)
   simp <- diversity(mat, "simpson")
   rich <- sum(mat > 0)
@@ -98,7 +155,7 @@ div_both <- df_div_all %>%
   group_by(site, point, hu.ho) %>%
   do(div_fun(.)) %>%
   left_join(df %>%
-              dplyr::select(site, point, depth)) %>%
+              select(site, point, depth)) %>%
   distinct() %>%
   mutate(type = str_sub(site, 1, 1))
 # Just vegetation
@@ -106,7 +163,7 @@ div <- df_div %>%
   group_by(site, point, hu.ho) %>%
   do(div_fun(.)) %>%
   left_join(df %>%
-              dplyr::select(site, point, depth)) %>%
+              select(site, point, depth)) %>%
   distinct() %>%
   mutate(type = str_sub(site, 1, 1))
 div$depth <- as.numeric(as.character(div$depth))
@@ -645,17 +702,9 @@ ggsave(plot = p_rich,
 # NMDS Analysis -----------------------------------------------------------
 df_nmds <- df_div_all %>%
   ungroup() %>%
-  dplyr::select(-point) %>%
+  select(-point) %>%
   group_by(site, hu.ho) %>%
   summarize_all(funs(mean), na.rm = TRUE)
-# Get rid of rare species (found in <5% total samples)
-# First save which species these are for methods
-species_rare <- df_nmds[, 
-                        colSums(df_nmds != 0) <= 
-                          0.05 * nrow(df_nmds)]
-df_nmds_sub <- df_nmds[,
-                       colSums(df_nmds != 0) > 
-                         0.05 * nrow(df_nmds)]
 
 groups <- data.frame(site = df_nmds$site,
                      hu_ho = df_nmds$hu.ho)
@@ -663,38 +712,20 @@ groups <- data.frame(site = df_nmds$site,
 rownames(df_nmds) <- paste(df_nmds$site, 
                               df_nmds$hu.ho, 
                            sep = ".")
-
 df_nmds$site <- NULL
 df_nmds$hu.ho <- NULL
-df_nmds_sub$site <- NULL
-df_nmds_sub$hu.ho <- NULL
 
 # Run NMDS
-nmds <- metaMDS(df_nmds_sub,
-                k = 2,
+nmds <- metaMDS(df_nmds,
+                k = 4,
                 distance = "bray",
-                # binary = TRUE,
+                binary = TRUE,
                 trymax = 50)
 
 stressplot(nmds)
-# ordiplot(nmds,type="n")
-# ordihull(nmds, groups=groups$hu_ho, draw = "polygon", col="grey90", label=F)
-# orditorp(nmds,display="species",col="red",air=0.01)
-# orditorp(nmds,display="sites",col=c(rep("green",8),rep("blue",9)),
-#          air=0.01,cex=1.25)
-#build a data frame with NMDS coordinates and metadata
-MDS1 = nmds$points[,1]
-MDS2 = nmds$points[,2]
-NMDS = data.frame(MDS1 = MDS1, 
-                  MDS2 = MDS2, 
-                  site = groups$site, 
-                  huho = groups$hu_ho)
-# head(NMDS)
+ordiplot(nmds,type="n")
+ordihull(nmds, groups=groups$hu_ho, draw = "polygon", col="grey90", label=F)
+orditorp(nmds,display="species",col="red",air=0.01)
+orditorp(nmds,display="sites",col=c(rep("green",8),rep("blue",9)),
+         air=0.01,cex=1.25)
 
-ggplot(NMDS, aes(x=MDS1, y=MDS2, col=huho)) +
-  # geom_point() +
-  geom_text(aes(label = site),
-            show.legend = FALSE) +
-  stat_ellipse() +
-  theme_bw() +
-  labs(title = "NMDS Plot")

@@ -5,7 +5,7 @@
 # 
 
 # Set Working Directory
-# setwd("E:/Dropbox/Dropbox/Projects/EAB/Data/Soils/Soil Extraction Chemistry")
+# setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
 setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 # Load Libraries
 library(tidyverse)
@@ -13,6 +13,11 @@ library(broom)
 library(ggplot2)
 library(lubridate)
 library(viridis)
+library(agricolae)
+# ggplot theme
+theme_set(theme_bw() + 
+            theme(panel.grid = element_blank(),
+          strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))))
 
 # Load soil chemistry and data
 df <- read_rds("soil_chem_long")
@@ -43,13 +48,187 @@ df <- df %>%
          outlier = ifelse((insz + insmad +instuk) < 2,
                           1,
                           0))
-
+# Get into mg per kg
+df <- df %>%
+  mutate(conc = case_when(conc = solute %in% 
+                               c("ca", "cl", "mg",
+                                 "no3", "po4", "so4") ~
+                             conc * 50,
+         solute %in% 
+           c("C", "N", "CN") ~ conc))
+              
 # Calculate relative concentrations (relative to site average)
 df <- df %>%
   filter(outlier == 0) %>%
   group_by(site, solute) %>%
   mutate(conc_avg = mean(conc, na.rm = TRUE),
          conc_rel = conc / conc_avg)
+
+# Statistical test of sites and hummock hollows
+a <- df %>%
+  group_by(solute) %>%
+  nest() %>%
+  mutate(an = map(data, ~aov(.$conc ~ .$site*.$hu.ho)),
+         t = map(an, tidy)) %>%
+  unnest(t)
+t <- df %>%
+  group_by(solute) %>%
+  nest() %>%
+  mutate(an = map(data, ~aov(.$conc ~ .$site*.$hu.ho)),
+         thsd = map(an, TukeyHSD),
+         t = map(thsd, tidy)) %>%
+  unnest(t)
+write.csv(a, "soil_anova.csv")
+write.csv(t, "soil_thsd.csv")
+# Statistical test of site types
+at <- df %>%
+  mutate(type = str_sub(site, 1, 1)) %>%
+  group_by(solute) %>%
+  nest() %>%
+  mutate(an = map(data, ~aov(.$conc ~ .$type)),
+         t = map(an, tidy)) %>%
+  unnest(t)
+tt <- df %>%
+  mutate(type = str_sub(site, 1, 1)) %>%
+  group_by(solute) %>%
+  nest() %>%
+  mutate(an = map(data, ~aov(.$conc ~ .$type)),
+         thsd = map(an, TukeyHSD),
+         t = map(thsd, tidy)) %>%
+  unnest(t) 
+
+# Get mean concentrations
+means <- df %>%
+  mutate(type = str_sub(site, 1, 1)) %>%
+  group_by(solute, type) %>%
+  dplyr::summarize(y = mean(conc, na.rm = T))
+
+# Get max value of concentration by analyte
+ms <- df %>%
+  mutate(type = str_sub(site, 1, 1)) %>%
+  group_by(solute) %>%
+  dplyr::summarize(y = max(conc, na.rm = T))
+
+# Get sig difference letter groupings for plotting
+cm <- df %>%
+  mutate(type = str_sub(site, 1, 1)) %>%
+  group_by(solute) %>%
+  nest() %>%
+  mutate(an = map(data, ~aov(conc ~ type,
+                             data = .)),
+         thsd = map(an, HSD.test, trt = "type"),
+         groups = map(thsd, pluck, 5),
+         type = map(groups, rownames),
+         letter = map(groups, pluck, 2)) %>%
+  unnest(letter, type) %>%
+  group_by(solute) %>%
+  mutate(x = paste0(type, "2")) %>%
+  left_join(ms)
+
+# Plot of site concentrations
+df2 <- df %>%
+  mutate(type = str_sub(site, 1, 1))
+df2$solute <- factor(df2$solute,
+                    levels = c("ca",
+                               "cl",
+                               "mg",
+                               "no3",
+                               "po4",
+                               "so4",
+                               "C",
+                               "N",
+                               "CN"))
+levels(df2$solute) <- c("Ca^{`2+`}",
+                       "Cl^{`-`}",
+                       "Mg^{`2+`}",
+                       "NO[3]^{`-`}-N",
+                       "PO[4]^{`3-`}-P",
+                       "SO[4]^{`2-`}",
+                       "'%'*C",
+                       "'%'*N",
+                       "C:N")
+cm$solute <- factor(cm$solute,
+                     levels = c("ca",
+                                "cl",
+                                "mg",
+                                "no3",
+                                "po4",
+                                "so4",
+                                "C",
+                                "N",
+                                "CN"))
+levels(cm$solute) <- c("Ca^{`2+`}",
+                        "Cl^{`-`}",
+                        "Mg^{`2+`}",
+                        "NO[3]^{`-`}-N",
+                        "PO[4]^{`3-`}-P",
+                        "SO[4]^{`2-`}",
+                        "'%'*C",
+                        "'%'*N",
+                        "C:N")
+means$solute <- factor(means$solute,
+                    levels = c("ca",
+                               "cl",
+                               "mg",
+                               "no3",
+                               "po4",
+                               "so4",
+                               "C",
+                               "N",
+                               "CN"))
+levels(means$solute) <- c("Ca^{`2+`}",
+                       "Cl^{`-`}",
+                       "Mg^{`2+`}",
+                       "NO[3]^{`-`}-N",
+                       "PO[4]^{`3-`}-P",
+                       "SO[4]^{`2-`}",
+                       "'%'*C",
+                       "'%'*N",
+                       "C:N")
+
+
+sp <- ggplot(data = df2,
+       aes(x = site,
+           y = conc,
+           color = type)) + 
+  stat_summary(fun.data = mean_cl_boot) + 
+  geom_segment(data = filter(means, type == "D"),
+             aes(x = "D1",
+                 xend = "D4",
+                 y = y,
+                 yend = y)) + 
+  geom_segment(data = filter(means, type == "T"),
+               aes(x = "T1",
+                   xend = "T3",
+                   y = y,
+                   yend = y)) +
+  geom_segment(data = filter(means, type == "L"),
+               aes(x = "L1",
+                   xend = "L3",
+                   y = y,
+                   yend = y)) +
+  geom_text(data = cm,
+            aes(color = type,
+                x = x,
+                y = y,
+                label = letter),
+            show.legend = FALSE) + 
+  facet_wrap(~solute, scales = "free_y",
+             labeller = label_parsed) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90,
+                                   vjust = 0.5)) +
+  scale_color_viridis(discrete = TRUE) + 
+  xlab("") + 
+  ylab(expression("Soil concentration (mg"~kg^{-1}*"or -)"))
+sp
+ggsave(sp,
+       filename = "soil_extraction_summary_letters_means_mgkg.tiff",
+       device = "tiff",
+       dpi = 300,
+       width = 6,
+       height = 4,
+       units = "in")
 
 # Get a count of each measurement by site
 df_count <- df %>%
@@ -122,8 +301,8 @@ df$solute <- factor(df$solute,
 levels(df$solute) <- c("Ca^{`2+`}",
                               "Cl^{`-`}",
                               "Mg^{`2+`}",
-                              "NO[3]^{`-`}",
-                              "PO[4]^{`3-`}",
+                              "NO[3]^{`-`}-N",
+                              "PO[4]^{`3-`}-P",
                               "SO[4]^{`2-`}",
                               "'%'*C",
                               "'%'*N",
@@ -141,8 +320,8 @@ df_p$solute <- factor(df_p$solute,
 levels(df_p$solute) <- c("Ca^{`2+`}",
                        "Cl^{`-`}",
                        "Mg^{`2+`}",
-                       "NO[3]^{`-`}",
-                       "PO[4]^{`3-`}",
+                       "NO[3]^{`-`}-N",
+                       "PO[4]^{`3-`}-P",
                        "SO[4]^{`2-`}",
                        "'%'*C",
                        "'%'*N",
@@ -152,6 +331,7 @@ df_p$pvaltext <- ifelse(df_p$p.value < 0.001,
                         "p<0.001",
                         paste0("p=", round(df_p$p.value, 3)))
 
+df$type <- substr(df$site, 1, 1)
 # Quick global plot
 p_globe_rel <- ggplot(data = filter(df, 
                                 hu.ho != "#N/A"), 
@@ -162,6 +342,8 @@ p_globe_rel <- ggplot(data = filter(df,
   geom_bar(stat = "summary", 
            fun.y = "mean",
            color = "black") + 
+  geom_jitter(aes(x = hu.ho,
+                 color = type)) + 
   stat_summary(fun.data = mean_se, 
                geom = "errorbar",
                width = 0.4) + 
@@ -190,7 +372,7 @@ p_globe_rel <- ggplot(data = filter(df,
         strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))) +
   facet_wrap(~solute,
              labeller = label_parsed)
-
+p_globe_rel
 # Save Plot
 ggsave(filename = "soil_chem_global_no_logs_no_int_rel.tiff",
        plot = p_globe_rel,

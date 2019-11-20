@@ -36,12 +36,12 @@ df$depth <- na.locf(df$depth)
 huho <- read.csv("hu.ho2.csv")
 
 # Load species updates
-spec <- read.csv("VegLookup.csv")
+spec <- read.csv("VegLookup_v2.csv")
 
 # Combine data
-df <- left_join(df, select(huho, 
-                           -c(id, site, plot, position)), 
-                by = "point")
+df <- left_join(df, dplyr::select(huho, 
+                           -c(id, point)), 
+                by = c("site", "plot", "position"))
 
 df <- left_join(df, spec)
 df$species <- NULL

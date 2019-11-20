@@ -1,12 +1,12 @@
 # 
 # Author: Jake Diamond
 # Purpose: To analyze vegetation field data categorically
-# Date: November 16, 2016
+# Date: March 1, 2019
 # 
 
 # Set Working Directory
-# setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
+# setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 
 # Load Libraries
 library(broom)
@@ -35,34 +35,6 @@ df_div_all <- df %>%
   spread(key = species, 
          value = sum, 
          fill = 0)
-# Quick calc of overall richness site-huho
-df_div_all %>%
-  ungroup() %>%
-  select(-hu.ho, -site, -point) %>%
-  colSums(. > 0) %>%
-  sort()
-
-  group_by
-  
-r <- df_div_all %>%
-  group_by(site, hu.ho) %>%
-  select(-point) %>%
-  summarise_all(funs(sum)) %>%
-  ungroup() %>%
-  gather(species, count, -hu.ho, -site) %>%
-  group_by(site, hu.ho) %>%
-  summarize(rich = sum(count > 0)) %>%
-  ungroup() %>%
-  group_by(site) %>%
-  mutate(tot = sum(rich),
-         prop = rich / tot) %>%
-  ungroup() %>%
-  group_by(hu.ho) %>%
-  summarize(richpm = mean(prop),
-            richsd = sd(prop))
-
-rowSums(r[,-(1:2)] != 0)
-
 # Just understory
 df_div <- df %>%
   filter(moss != 1) %>%
@@ -150,7 +122,7 @@ ttests_both <- div_both %>%
 ttests <- div %>%
   group_by(site) %>%
   spread(key = hu.ho, 
-         value = shannon, 
+         value = richness, 
          fill = NA) %>%
   do(tidy(t.test(.$hummock, .$hollow)))
 # T-tests for moss
@@ -218,7 +190,7 @@ df_p_all <- ttests_both %>%
   select(site, p.value, estimate1, estimate2) %>%
   mutate(ratio = estimate2 / estimate1,
          hu.ho = "hollow",
-         y = 1.5,
+         y = 7,
          type = str_sub(site, 1, 1)) %>%
   left_join(dis)
 # Just veg
@@ -226,7 +198,7 @@ df_p <- ttests %>%
   select(site, p.value, estimate1, estimate2) %>%
   mutate(ratio = estimate2 / estimate1,
          hu.ho = "hollow",
-         y = 1.5,
+         y = 7,
          type = str_sub(site, 1, 1)) %>%
   left_join(dis)
 # Same for moss
@@ -234,7 +206,7 @@ df_p_m <- ttests_moss %>%
   select(site, p.value, estimate1, estimate2) %>%
   mutate(ratio = estimate2 / estimate1,
          hu.ho = "hollow",
-         y = 1,
+         y = 4,
          type = str_sub(site, 1, 1)) %>%
   left_join(dis_m)
 # p value text
@@ -252,7 +224,7 @@ df_p_m$pvaltext <- ifelse(df_p_m$p.value < 0.001,
 # Plotting Results, no moss for shannon and richness
 p_shan_nm_d <- ggplot(filter(div, type == "D"),
                aes(x = hu.ho, 
-                   y = shannon, 
+                   y = richness, 
                    fill = hu.ho),
                alpha = 0.8) + 
   geom_bar(position = "dodge", 
@@ -273,23 +245,23 @@ p_shan_nm_d <- ggplot(filter(div, type == "D"),
                      legend.position = "none") +
   geom_text(data = filter(df_p, type == "D"),
             aes(x = hu.ho,
-                y = y - 0.1,
+                y = y,
                 label = pvaltext),
             show.legend = FALSE,
             size = 2) +
   geom_text(data = filter(df_p, type == "D"),
             aes(x = hu.ho,
-                y = y + 0.1,
+                y = y - 1,
                 label = paste0("BC=",
                                round(dis_bray, 2))),
             show.legend = FALSE,
             size = 2) +
   facet_wrap(~site, ncol = 4) + 
-  ylab("Understory Shannon diversity")
+  ylab(expression("Understory richness (species 0.25"*m^{-2}*")" ))
 
 p_shan_nm_l <- ggplot(filter(div, type == "L"),
                       aes(x = hu.ho, 
-                          y = shannon, 
+                          y = richness, 
                           fill = hu.ho),
                       alpha = 0.8) + 
   geom_bar(position = "dodge", 
@@ -310,23 +282,23 @@ p_shan_nm_l <- ggplot(filter(div, type == "L"),
                      legend.position = "none") +
   geom_text(data = filter(df_p, type == "L"),
             aes(x = hu.ho,
-                y = y - 0.1,
+                y = y,
                 label = pvaltext),
             show.legend = FALSE,
             size = 2) +
   geom_text(data = filter(df_p, type == "L"),
             aes(x = hu.ho,
-                y = y + 0.1,
+                y = y - 1,
                 label = paste0("BC=",
                                round(dis_bray, 2))),
             show.legend = FALSE,
             size = 2) +
   facet_wrap(~site, ncol = 4) + 
-  ylab("Understory Shannon diversity")
+  ylab(expression("Understory richness (species 0.25"*m^{-2}*")" ))
 
 p_shan_nm_t <- ggplot(filter(div, type == "T"),
                       aes(x = hu.ho, 
-                          y = shannon, 
+                          y = richness, 
                           fill = hu.ho),
                       alpha = 0.8) + 
   geom_bar(position = "dodge", 
@@ -347,41 +319,41 @@ p_shan_nm_t <- ggplot(filter(div, type == "T"),
                      legend.position = "none") +
   geom_text(data = filter(df_p, type == "T"),
             aes(x = hu.ho,
-                y = y - 0.1,
+                y = y,
                 label = pvaltext),
             show.legend = FALSE,
             size = 2) +
   geom_text(data = filter(df_p, type == "T"),
             aes(x = hu.ho,
-                y = y + 0.1,
+                y = y - 1,
                 label = paste0("BC=",
                                round(dis_bray, 2))),
             show.legend = FALSE,
             size = 2) +
   facet_wrap(~site, ncol = 4) + 
-  ylab("Understory Shannon diversity")
+  ylab(expression("Understory richness (species 0.25"*m^{-2}*")" ))
 
 p_shan_nm <- ggdraw() +
   draw_plot(p_shan_nm_d + rremove("x.text") + rremove("x.title") +
               rremove("y.title"), 
-            x = 0.036, y = 0.66, width = 0.96, height = 0.33) +
+            x = 0.052, y = 0.66, width = 0.96, height = 0.33) +
   draw_plot(p_shan_nm_l + rremove("x.text") + rremove("x.title"),
-            x = 0, y = 0.355, width = 0.77, height = 0.33) +
+            x = 0, y = 0.355, width = 0.785, height = 0.33) +
   draw_plot(p_shan_nm_t + rremove("y.title"),
-            x = 0.038, y = 0, width = 0.7365, height = 0.38)
+            x = 0.054, y = 0, width = 0.735, height = 0.38)
 
 ggsave(plot = p_shan_nm,
-       filename = "shannon_diversity_no_moss.tiff",
+       filename = "veg_models/richness_no_moss.tiff",
        device = "tiff",
        dpi = 300,
        width = 5, 
        height = 4,
        units = "in")
 
-# Plotting Results, no moss for shannon and richness
+# Plotting moss results for shannon diversity
 p_shan_m_d <- ggplot(filter(div_moss2, type == "D"),
                       aes(x = hu.ho, 
-                          y = shannon, 
+                          y = richness, 
                           fill = hu.ho),
                       alpha = 0.8) + 
   geom_bar(position = "dodge", 
@@ -402,23 +374,23 @@ p_shan_m_d <- ggplot(filter(div_moss2, type == "D"),
                      legend.position = "none") +
   geom_text(data = filter(df_p_m, type == "D"),
             aes(x = hu.ho,
-                y = y - 0.1,
+                y = y,
                 label = pvaltext),
             show.legend = FALSE,
             size = 2) +
   geom_text(data = filter(df_p_m, type == "D"),
             aes(x = hu.ho,
-                y = y,
+                y = y - 0.5,
                 label = paste0("BC=",
                                round(dis_bray, 2))),
             show.legend = FALSE,
             size = 2) +
   facet_wrap(~site, ncol = 4) + 
-  ylab("Moss Shannon diversity")
+  ylab(expression("Moss richness (species 0.25"*m^{-2}*")" ))
 
 p_shan_m_l <- ggplot(filter(div_moss2, type == "L"),
                       aes(x = hu.ho, 
-                          y = shannon, 
+                          y = richness, 
                           fill = hu.ho),
                       alpha = 0.8) + 
   geom_bar(position = "dodge", 
@@ -439,23 +411,23 @@ p_shan_m_l <- ggplot(filter(div_moss2, type == "L"),
                      legend.position = "none") +
   geom_text(data = filter(df_p_m, type == "L"),
             aes(x = hu.ho,
-                y = y - 0.1,
+                y = y,
                 label = pvaltext),
             show.legend = FALSE,
             size = 2) +
   geom_text(data = filter(df_p_m, type == "L"),
             aes(x = hu.ho,
-                y = y,
+                y = y - 0.5,
                 label = paste0("BC=",
                                round(dis_bray, 2))),
             show.legend = FALSE,
             size = 2) +
   facet_wrap(~site, ncol = 4) + 
-  ylab("Moss Shannon diversity")
+  ylab(expression("Moss richness (species 0.25"*m^{-2}*")" ))
 
 p_shan_m_t <- ggplot(filter(div_moss2, type == "T"),
                       aes(x = hu.ho, 
-                          y = shannon, 
+                          y = richness, 
                           fill = hu.ho),
                       alpha = 0.8) + 
   geom_bar(position = "dodge", 
@@ -476,35 +448,46 @@ p_shan_m_t <- ggplot(filter(div_moss2, type == "T"),
                      legend.position = "none") +
   geom_text(data = filter(df_p_m, type == "T"),
             aes(x = hu.ho,
-                y = y - 0.1,
+                y = y,
                 label = pvaltext),
             show.legend = FALSE,
             size = 2) +
   geom_text(data = filter(df_p_m, type == "T"),
             aes(x = hu.ho,
-                y = y,
+                y = y - 0.5,
                 label = paste0("BC=",
                                round(dis_bray, 2))),
             show.legend = FALSE,
             size = 2) +
   facet_wrap(~site, ncol = 4) + 
-  ylab("Moss Shannon diversity")
+  ylab(expression("Moss richness (species 0.25"*m^{-2}*")" ))
 
-p_shan_m <- ggdraw() +
+p_rich_m <- ggdraw() +
   draw_plot(p_shan_m_d + rremove("x.text") + rremove("x.title") +
               rremove("y.title"), 
-            x = 0.036, y = 0.66, width = 0.96, height = 0.33) +
+            x = 0.054, y = 0.66, width = 0.96, height = 0.33) +
   draw_plot(p_shan_m_l + rremove("x.text") + rremove("x.title"),
-            x = 0, y = 0.355, width = 0.77, height = 0.33) +
+            x = 0, y = 0.355, width = 0.785, height = 0.33) +
   draw_plot(p_shan_m_t + rremove("y.title"),
-            x = 0.038, y = 0, width = 0.7365, height = 0.38)
+            x = 0.056, y = 0, width = 0.735, height = 0.38)
 
-ggsave(plot = p_shan_m,
-       filename = "shannon_moss.tiff",
+ggsave(plot = p_rich_m,
+       filename = "veg_models/richness_moss.tiff",
        device = "tiff",
        dpi = 300,
        width = 5, 
        height = 4,
+       units = "in")
+
+# Combine into panel plot
+p_shan <- plot_grid(p_shan_m, p_shan_nm, labels = c("A", "B"), ncol = 1)
+p_shan
+ggsave(plot = p_shan,
+       filename = "veg_models/richness_all.tiff",
+       device = "tiff",
+       dpi = 300,
+       width = 6, 
+       height = 8,
        units = "in")
 
 # Both moss and vegetation data in one
@@ -642,59 +625,3 @@ ggsave(plot = p_rich,
        height = 4,
        units = "in")
 
-# NMDS Analysis -----------------------------------------------------------
-df_nmds <- df_div_all %>%
-  ungroup() %>%
-  dplyr::select(-point) %>%
-  group_by(site, hu.ho) %>%
-  summarize_all(funs(mean), na.rm = TRUE)
-# Get rid of rare species (found in <5% total samples)
-# First save which species these are for methods
-species_rare <- df_nmds[, 
-                        colSums(df_nmds != 0) <= 
-                          0.05 * nrow(df_nmds)]
-df_nmds_sub <- df_nmds[,
-                       colSums(df_nmds != 0) > 
-                         0.05 * nrow(df_nmds)]
-
-groups <- data.frame(site = df_nmds$site,
-                     hu_ho = df_nmds$hu.ho)
-
-rownames(df_nmds) <- paste(df_nmds$site, 
-                              df_nmds$hu.ho, 
-                           sep = ".")
-
-df_nmds$site <- NULL
-df_nmds$hu.ho <- NULL
-df_nmds_sub$site <- NULL
-df_nmds_sub$hu.ho <- NULL
-
-# Run NMDS
-nmds <- metaMDS(df_nmds_sub,
-                k = 2,
-                distance = "bray",
-                # binary = TRUE,
-                trymax = 50)
-
-stressplot(nmds)
-# ordiplot(nmds,type="n")
-# ordihull(nmds, groups=groups$hu_ho, draw = "polygon", col="grey90", label=F)
-# orditorp(nmds,display="species",col="red",air=0.01)
-# orditorp(nmds,display="sites",col=c(rep("green",8),rep("blue",9)),
-#          air=0.01,cex=1.25)
-#build a data frame with NMDS coordinates and metadata
-MDS1 = nmds$points[,1]
-MDS2 = nmds$points[,2]
-NMDS = data.frame(MDS1 = MDS1, 
-                  MDS2 = MDS2, 
-                  site = groups$site, 
-                  huho = groups$hu_ho)
-# head(NMDS)
-
-ggplot(NMDS, aes(x=MDS1, y=MDS2, col=huho)) +
-  # geom_point() +
-  geom_text(aes(label = site),
-            show.legend = FALSE) +
-  stat_ellipse() +
-  theme_bw() +
-  labs(title = "NMDS Plot")

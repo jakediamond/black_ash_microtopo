@@ -78,6 +78,15 @@ df <- tibble(filename = files,
 #   dplyr::filter(!is.na(id)) %>%
 #   write_rds("hummocks_clean_detrended")
 
+# Percentages of each classification
+pc <- df %>%
+  group_by(site, hum2) %>%
+  summarize(n = n()) %>%
+  left_join(df %>%
+              group_by(site) %>%
+              summarize(nt = n())) %>%
+  mutate(f = n / nt)
+
 # Summarize data
 df_sum <- read.csv("Lidar/hummock_stats_ext6.csv") %>%
   dplyr::select(id, site_area) %>%
@@ -119,6 +128,17 @@ dfSam <- df %>%
   sample_n(size = 10000)
 rm(df)
 
+# Get summary of data thta is not hummock nor hollow
+counts<- dfSam %>%
+  group_by(site, hum2) %>%
+  summarize(no = n()) %>%
+  filter(is.na(hum2)) %>%
+  ungroup() %>%
+  summarize(mean = mean(no),
+            sd = sd(no),
+            ma = max(no),
+            mi = min(no))
+
 # Add averages of the samples to the summary dataframe
 df_sum <- dfSam %>%
   group_by(site, type, trend, num, hum2) %>%
@@ -142,6 +162,7 @@ df_sum <- dfSam %>%
   na.omit() %>%
   right_join(df_sum)
 
+# Binary plot of elevations -----------------------------------------------
 # Plot data binary
 p_hum_best_d <- ggplot() +
   geom_density(data = dplyr::filter(dfSam, type == "D"),
@@ -190,7 +211,8 @@ p_hum_best_d <- ggplot() +
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         legend.title = element_blank(),
-        axis.text.y = element_blank()
+        axis.text.y = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))
   ) +
   facet_wrap(~site, ncol = 4, scales = "free_y") +
   ylab("Density") +
@@ -244,7 +266,8 @@ theme(legend.position = "none",
       panel.grid.major = element_blank(),
       panel.grid.minor = element_blank(),
       legend.title = element_blank(),
-      axis.text.y = element_blank()
+      axis.text.y = element_blank(),
+      strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))
 ) +
   facet_wrap(~site, ncol = 4, scales = "free_y") +
   ylab("Density") +
@@ -296,7 +319,8 @@ p_hum_best_t <- ggplot() +
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         legend.title = element_blank(),
-        axis.text.y = element_blank()
+        axis.text.y = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))
   ) +
   facet_wrap(~site, ncol = 4, scales = "free_y") +
   ylab("Density") +
@@ -320,6 +344,7 @@ ggsave(plot = p_hum_best2,
        width = 6, height = 4,
        units = "in")
 
+# Plot of hum hol elevations ----------------------------------------------
 # Plot data with hollows classified
 p_hum_best_d2 <- ggplot() +
   geom_density(data = dplyr::filter(dfSam, type == "D",
@@ -368,7 +393,8 @@ p_hum_best_d2 <- ggplot() +
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         legend.title = element_blank(),
-        axis.text.y = element_blank()
+        axis.text.y = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))
   ) +
   facet_wrap(~site, ncol = 4, scales = "free_y") +
   ylab("Density") +
@@ -423,7 +449,8 @@ p_hum_best_l2 <- ggplot() +
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         legend.title = element_blank(),
-        axis.text.y = element_blank()
+        axis.text.y = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))
   ) +
   facet_wrap(~site, ncol = 4, scales = "free_y") +
   ylab("Density") +
@@ -476,7 +503,8 @@ p_hum_best_t2 <- ggplot() +
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         legend.title = element_blank(),
-        axis.text.y = element_blank()
+        axis.text.y = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))
   ) +
   facet_wrap(~site, ncol = 4, scales = "free_y") +
   ylab("Density") +
@@ -486,9 +514,9 @@ legend2 <- cowplot::get_legend(p_hum_best_d2)
 
 p_hum_best3 <- ggdraw() +
   draw_plot(p_hum_best_da2 + rremove("x.text") + rremove("x.title"), 
-            x = 0, y = 0.7, width = 1, height = 0.3) +
+            x = 0, y = 0.69, width = 1, height = 0.33) +
   draw_plot(p_hum_best_l2 + rremove("x.text") + rremove("x.title"),
-            x = 0, y = 0.4, width = 0.76, height = 0.3) +
+            x = 0, y = 0.38, width = 0.76, height = 0.33) +
   draw_plot(p_hum_best_t2,
             x = 0, y = 0, width = 0.76, height = 0.4) + 
   draw_grob(legend2,
@@ -500,22 +528,45 @@ ggsave(plot = p_hum_best3,
        width = 6, height = 4,
        units = "in")
 
-
-
-# Semivariograms on hummocks and hollows ----------------------------------
+# Clusters on hummocks and hollows ----------------------------------
 library(mclust)
-df_huho <- filter(df, !is.na(hum2))
-rm(df)
-df_semi <- df_huho %>%
+df_huho <- filter(dfSam, !is.na(hum2))
+df_mcl <- df_huho %>%
   select(site, z) %>%
   group_by(site) %>%
-  sample_n(10000) %>%
   nest()
-rm(df_huho)
 
-semis <- df_semi %>%
-  mutate(result = purrr::map(data, Mclust))
+mcl <- df_mcl %>%
+  mutate(resulttri = purrr::map(data, Mclust, G = 3),
+         resultbi = purrr::map(data, Mclust, G = 2),
+         resultuni = purrr::map(data, Mclust, G = 1),
+         bictri = purrr::map(data, mclustBIC, G = 3))
 
+mcl_tidy <- mcl %>%
+  mutate(tidiedtri = purrr::map(resulttri, glance),
+         tidiedbi = purrr::map(resultbi, glance),
+         tidieduni = purrr::map(resultuni, glance)) %>%
+  select(-data, -resultbi, -resulttri, -resultuni) %>%
+  unnest()
+
+
+mcl_t <- mcl %>%
+  mutate(tidied = purrr::map(resulttri, tidy)) %>%
+  select(-data, -bictri, -resultbi, -resulttri, -resultuni) %>%
+  unnest() 
+
+mcl_t <- mcl_t %>%
+  group_by(site) %>%
+  dplyr::filter(row_number()==n()) %>%
+  dplyr::select(6:ncol(.)) %>%
+  ungroup() %>%
+  gather(key = "component",
+         value = "mean",
+         -site) %>%
+  mutate(component = as.numeric(str_sub(component, 
+                                        start = -1L))) %>%
+  right_join(tidy(mcl_t) %>%
+               dplyr::select(1:5)) %>%
 
 # Tidy the data for export
 mcl_tidy <- tidy(mcl) %>%

@@ -7,15 +7,15 @@
 # 
 
 # Set Working Directory
-# setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
-setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
+setwd("E:/Dropbox/Dropbox/Projects/EAB/Data")
+# setwd("C:/Users/diamo/Dropbox/Projects/EAB/Data")
 
 # Load libraries
-library(tidyverse)
 library(broom)
 library(cowplot)
 library(ggpubr)
 library(viridis)
+library(tidyverse)
 
 # Load cleaned delineated hummock elevation data
 elev <- read.csv("relative_elevations_all_v6.csv",
@@ -65,6 +65,12 @@ df$depth <- ifelse(df$depth == ">120",
 df$depth <- as.numeric(df$depth)
 df$depth <- df$depth / 100
 
+# Account for L3 drop off in plot 3
+df$z <- ifelse(df$site == "L3" &
+                 df$plot == 3,
+               df$z + 0.30,
+               df$z)
+
 lm_model <- function(data) {
   data$z = data$z - data$depth
   lm(depth ~ z, data = data)
@@ -92,14 +98,31 @@ lin_mods <- df_l %>%
   unnest(tidied, .drop = TRUE) %>%
   dplyr::select(-std.error, -statistic, -p.value) %>%
   spread(term, estimate)
+# Separated by hummock hollow
+lin_mods_huho <- df_l %>%
+  group_by(site, type, num, hu.ho) %>%
+  nest() %>%
+  mutate(model = map(data, lm_model),
+         glance_lm = map(model, glance),  
+         rsq = map_dbl(glance_lm, "r.squared"),
+         pval = map_dbl(glance_lm, "p.value"),
+         tidied = map(model, tidy)
+  ) %>% 
+  unnest(tidied, .drop = TRUE) %>%
+  dplyr::select(-std.error, -statistic, -p.value) %>%
+  spread(term, estimate)
 
 # Pvalue text for plot
 lin_mods$pval_text = ifelse(lin_mods$pval < 0.001, 
                                    "p<0.001", 
                                    paste0("p=", round(lin_mods$pval, 3)))
+lin_mods_huho$pval_text = ifelse(lin_mods_huho$pval < 0.001, 
+                            "p<0.001", 
+                            paste0("p=", round(lin_mods_huho$pval, 3)))
 
 # Write models to file
-write.csv(lin_mods, "soil_thick_versus_confining_depth_noNAs.csv")
+write.csv(lin_mods, "soil_thick_versus_confining_depth_noNAs_L3change.csv")
+write.csv(lin_mods, "soil_thick_versus_confining_depth_noNAs_huho_L3change.csv")
 # Get sites that have significant relationships
 sig_sites <- lin_mods %>%
   dplyr::filter(pval < 0.01) %>%
@@ -125,26 +148,28 @@ p_conf_d <- ggplot(data = dplyr::filter(df_l,
         legend.title = element_text(size = 8),
         panel.background = element_blank(),
         panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
+        panel.grid.minor = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))) +
   geom_abline(aes(slope = -1,
                   intercept = 0,
-                  linetype = "Deposition (-1:1)"),
+                  linetype = "Smooth surface (-1:1)"),
               color = "dark grey",
               show.legend = FALSE) + 
   geom_hline(aes(yintercept = 0.2,
-                 linetype = "Confining layer"),
+                 linetype = "Subsurface reflection"),
              color = "dark grey") +
-  scale_linetype_manual(name = "Control on soil elevation",
-                        breaks = c("Confining layer",
-                                   "Deposition (-1:1)"),
-                        values = c("dotted",
-                                   "dashed")) + 
+  scale_linetype_manual(name = "Surface soil model",
+                        breaks = c("Smooth surface (-1:1)",
+                                   "Subsurface reflection"
+                                   ),
+                        values = c("dashed",
+                                   "dotted")) + 
   scale_y_continuous(limits = c(0, 1.2),
                      breaks = seq(0, 1.5, 0.4)) +
   scale_x_continuous(limits = c(-1, 0.1),
                      breaks = seq(-1.5, 0, 0.5)) +
   geom_text(data = dplyr::filter(lin_mods,
-                                 site %in% sig_sites,
+                                 # site %in% sig_sites,
                                  type == "D"),
             aes(x = -0.25,
                 y = 0.95,
@@ -154,7 +179,7 @@ p_conf_d <- ggplot(data = dplyr::filter(df_l,
             size = 2,
             parse = TRUE) +
   geom_text(data = dplyr::filter(lin_mods,
-                                 site %in% sig_sites,
+                                 # site %in% sig_sites,
                                  type == "D"),
             aes(x = -0.25,
                 y = 1.1,
@@ -180,13 +205,14 @@ p_conf_l <- ggplot(data = dplyr::filter(df_l,
   geom_point(aes(shape = hu.ho)) +
   scale_shape_manual(breaks = c("hollow", "hummock"),
                      values = c(1, 16)) +
-  ylab(expression("Soil thickness (m)")) +
+  ylab(expression("Organic soil thickness (m)")) +
   xlab("Confining layer elevation (m)") +
   theme_bw() +
   theme(legend.position = "none",
         panel.background = element_blank(),
         panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
+        panel.grid.minor = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))) +
   geom_abline(slope = -1,
               intercept = 0,
               color = "dark grey",
@@ -199,7 +225,7 @@ p_conf_l <- ggplot(data = dplyr::filter(df_l,
   scale_x_continuous(limits = c(-1, 0.1),
                      breaks = seq(-1.5, 0, 0.5)) +
   geom_text(data = dplyr::filter(lin_mods,
-                                 site %in% sig_sites,
+                                 # site %in% sig_sites,
                                  type == "L"),
             aes(x = -0.25,
                 y = 0.95,
@@ -209,7 +235,7 @@ p_conf_l <- ggplot(data = dplyr::filter(df_l,
             size = 2,
             parse = TRUE) +
   geom_text(data = dplyr::filter(lin_mods,
-                                 site %in% sig_sites,
+                                 # site %in% sig_sites,
                                  type == "L"),
             aes(x = -0.25,
                 y = 1.1,
@@ -235,12 +261,13 @@ p_conf_t <- ggplot(data = dplyr::filter(df_l,
   scale_shape_manual(breaks = c("hollow", "hummock"),
                      values = c(1, 16)) +
   ylab(expression("Soil thickness (m)")) +
-  xlab("Confining layer elevation (m)") +
+  xlab("Mineral layer elevation (m)") +
   theme_bw() +
   theme(legend.position = "none",
         panel.background = element_blank(),
         panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
+        panel.grid.minor = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))) +
   geom_abline(slope = -1,
               intercept = 0,
               color = "dark grey",
@@ -293,11 +320,11 @@ p_conf <- ggdraw() +
             x = 0.035, y = 0, width = 0.7365, height = 0.41) +
   draw_grob(legend,
             0.84, 0.1, .3/3.3, 0.5)
-
+# p_conf
 ggsave(plot = p_conf,
-       filename = "depth_vs_elevation_confining_spread.tiff",
+       filename = "depth_vs_elevation_confining_spread_Lchange_new.tiff",
        device = "tiff",
-       width = 6, height = 4,
+       width = 6.5, height = 4,
        units = "in")
 
 # Site level hummock elevation analysis ---------------------------------------
@@ -386,14 +413,15 @@ hu_hts_avg <- elev2 %>%
          value = "value",
          -site) %>%
   group_by(site, z_type) %>%
-  summarize(avg_ht = mean(value),
+  dplyr::summarize(avg_ht = mean(value),
             sd_ht = sd(value)) %>%
   left_join(dplyr::select(elev, site, mean,
                           median, quant_80, variation) %>%
               distinct())
 
+
 # Correction for D2 water table for missing data
-hu_hts_avg[hu_hts_avg$site == "D2", "mean"] <- -0.1
+# hu_hts_avg[hu_hts_avg$site == "D2", "mean"] <- -0.1
 
 # Linear model
 lm_model_hums <- function(data) {
@@ -496,7 +524,7 @@ ggsave(plot = avg_hu_p,
 # Individual hummocks vs water table analysis ----------------------------------------
 # Get all data based on best detrend
 df_i <- read_rds("hummock_stats_clean_detrended_z") %>%
-  dplyr::filter(zmaxn > 0.15) %>%
+  dplyr::filter(zmaxn > 0.10) %>%
   mutate(zmaxn = ifelse(site %in% c("L1", "L2", "L3"),
                         zmeann,
                         zmaxn),
@@ -511,32 +539,63 @@ hydro <- read.csv("average_wt_info_new_sites_v4.csv") %>%
   dplyr::select(-X, -(8:14)) %>%
   dplyr::filter(!(site %in% c("S1", "S2", "L4"))) %>%
   left_join(dplyr::select(df_i, site, trend)) %>%
-  distinct() %>%
-  left_join(read.csv("relative_elevations_all_v6.csv",
-                     stringsAsFactors = FALSE) %>%
-              dplyr::filter(point == "well") %>%
-              dplyr::select(site, z, z_mod_lin, z_mod_quad)) %>%
-  mutate(well_adj = ifelse(trend == "no",
-                 0,
-                 ifelse(trend == "linear",
-                        z - z_mod_lin,
-                        z - z_mod_quad))) %>%
-  dplyr::select(-z, -z_mod_lin, -z_mod_quad,
-                -variation, -avghydro_rel, -avghydro, -ET.P_avg) %>%
-  gather(key = "hydromet", value = "value",
-         -site, -trend, -well_adj) %>%
-  mutate(value_adj = value + well_adj) %>%
-  dplyr::select(-value) %>%
-  spread(key = hydromet,
-         value = value_adj)
+  distinct()
 
+# Join data together
 df_i <- left_join(df_i, hydro)
 # First, for each site, want to plot individual
 # hummock height (actually 80% of max hummock height)
 # as a function of (base/hollow) distance from water table
-# Do this assuming that the linear detrended surface is the hollow
 df_hu <- df_i %>%
   mutate(dist_hydmean = mean - zmin)
+
+# Average hh-wt by site
+avgh <- df_hu %>%
+  mutate(hhwt = z80n - dist_hydmean) %>%
+  group_by(site) %>%
+  dplyr::summarize(mean = mean(hhwt, na.rm = T),
+                   sd = sd(hhwt, na.rm = T))
+
+# Plot all sites together
+# First get linear model of all sites
+lm_all <- lm(z80n ~ dist_hydmean, data = df_hu)
+summary(lm_all)
+lm_site <- lm(z80n ~ dist_hydmean*site, data = df_hu)
+summary(lm_site)
+anova(lm_all, lm_site)
+# Same thing without L sites
+lm_all2 <- lm(z80n ~ dist_hydmean, data = filter(df_hu, type == "D",
+                                                 site != "D4"))
+summary(lm_all2)
+lm_site2 <- lm(z80n ~ dist_hydmean*site, data = filter(df_hu, type == "D",
+                                                       site != "D4"))
+summary(lm_site2)
+anova(lm_site2, lm_all2)
+plot(lm_all2)
+# Plot this
+hums_p_all <- ggplot(data = filter(df_hu, type == "D"),
+                   aes(x = dist_hydmean,
+                       y = z80n)) +
+  geom_point(shape = 1,
+             aes(color = site)) + 
+  geom_smooth(
+              method = "lm",
+              se = FALSE,
+              show.legend = FALSE) +
+  theme_bw() + 
+  scale_color_viridis(discrete = TRUE) +
+  theme(legend.justification = "top",
+        legend.title = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank()) +
+  xlab("Local hummock mean water table (m)") + 
+  ylab("Hummock height (m)") + 
+  scale_y_continuous(limits = c(0, 0.5),
+                     breaks = seq(0, 0.5, 0.1))
+
+hums_p_all
 
 # Linear model for hummock heights as a function of distance from water table
 lm_hu_hts <- function(data) {
@@ -565,12 +624,12 @@ lms_hts$pval_text = ifelse(lms_hts$pval < 0.001,
 
 # Get x and y data for text on final plot
 lms_hts <- lms_hts %>%
-  mutate(x = c(-0.45, -0.2, -0.17, -0.2, -0.375, 
-               -0.55, -0.385, -0.55, -0.275, -0.25),
+  mutate(x = c(-0.17, -0.17, -0.17, -0.17, -0.375, 
+               -0.375, -0.375, -0.275, -0.275, -0.275),
          y = 0.48)
 
 # Write models to file
-write.csv(lms_hts, "individual_hummock_ht_vs_water_table_reverse_meanL.csv")
+write.csv(lms_hts, "individual_hummock_ht_vs_water_table_reverse_meanL_nodt.csv")
 # Get sites that have significant relationships
 sig_sites <- lms_hts %>%
   dplyr::filter(pval < 0.01) %>%
@@ -591,11 +650,18 @@ hums_p_d <- ggplot(data = dplyr::filter(df_hu,
               show.legend = FALSE) +
   theme_bw() + 
   theme(legend.justification = "top",
-        legend.title = element_blank()) +
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        legend.title = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))) +
   xlab("Local hummock mean water table (m)") + 
   ylab("Hummock height (m)") + 
   scale_y_continuous(limits = c(0, 0.5),
                      breaks = seq(0, 0.5, 0.1)) +
+  scale_x_continuous(limits = c(-0.25, 0.15),
+                     breaks = seq(-0.2, 0.1, 0.1)) +
   geom_text(data = dplyr::filter(lms_hts,
                                  site %in% sig_sites,
                                  type == "D"),
@@ -638,11 +704,18 @@ hums_p_l <- ggplot(data = dplyr::filter(df_hu,
               show.legend = FALSE) +
   theme_bw() + 
   theme(legend.justification = "top",
-        legend.title = element_blank()) +
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        legend.title = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))) +
   xlab("Local hummock mean water table (m)") + 
   ylab("Hummock height (m)") + 
   scale_y_continuous(limits = c(0, 0.5),
                      breaks = seq(0, 0.5, 0.1)) +
+    scale_x_continuous(limits = c(-0.47, -0.2),
+                     breaks = seq(-0.4, -0.2, 0.1)) +
   geom_text(data = dplyr::filter(lms_hts,
                                  site %in% sig_sites,
                                  type == "L"),
@@ -685,11 +758,18 @@ hums_p_t <- ggplot(data = dplyr::filter(df_hu,
               show.legend = FALSE) +
   theme_bw() + 
   theme(legend.justification = "top",
-        legend.title = element_blank()) +
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        legend.title = element_blank(),
+        strip.text.x = element_text(margin = margin(0,0,0,0, "cm"))) +
   xlab("Local hummock mean water table (m)") + 
   ylab("Hummock height (m)") + 
   scale_y_continuous(limits = c(0, 0.5),
                      breaks = seq(0, 0.5, 0.1)) +
+  scale_x_continuous(limits = c(-0.35, 0.07),
+                     breaks = seq(-0.3, 0.0, 0.1)) +
   geom_text(data = dplyr::filter(lms_hts,
                                  site %in% sig_sites,
                                  type == "T"),
@@ -729,7 +809,7 @@ hums_p <- ggdraw() +
             x = 0.0343, y = 0, width = 0.7365, height = 0.38)
 
 ggsave(plot = hums_p,
-       filename = "individ_hummock_vs_water_table_reverse_L.tiff",
+       filename = "individ_hummock_vs_water_table_reverse_L_nodt.tiff",
        device = "tiff",
        width = 6, height = 4,
        units = "in")
